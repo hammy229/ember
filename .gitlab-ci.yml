@@ -32,6 +32,7 @@ web:
     - apt-get install -y ninja-build
   script:
     - ./scripts/build-wasm.sh
+    - node tests/wasm_smoke.mjs
     - cd web
     - npm ci
     - npm run build
