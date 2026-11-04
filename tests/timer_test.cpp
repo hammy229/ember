@@ -18,8 +18,10 @@ TEST(Stopwatch, ElapsedIsNonNegativeAndGrows) {
 TEST(Stopwatch, ResetStartsOver) {
   ember::Stopwatch sw;
   std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  ember::Stopwatch started_before_reset;
   sw.Reset();
-  EXPECT_LT(sw.ElapsedMs(), 15.0);
+  const double since_reset = sw.ElapsedMs();
+  EXPECT_LE(since_reset, started_before_reset.ElapsedMs());
 }
 
 TEST(Summarize, OddCount) {
