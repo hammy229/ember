@@ -30,11 +30,17 @@ Ember is an LLM inference engine written from scratch in C++20, with no ML frame
 
 Out of scope for this window: CUDA backend, continuous batching, runtime LoRA loading, and a separate Dear ImGui app. The dashboard lives on the website.
 
+**Quantization quality report:** a script anyone can rerun that compares the quantized model to the full model on logit error, KL divergence, and top-1 agreement, next to speed and memory.
+
+**Training:** starts Nov 15 only if Milestone 2 is done by the end of Nov 12. Otherwise the days go to catching up first.
+
+Stretch goals, only if ahead of schedule: 4-bit quantization and Qwen3-8B on the Mac.
+
 Optional: the mortality pipeline comparison against 0.804 AUC. It needs lab approval and nothing else depends on it.
 
 **Minimum to publish on Nov 19:** Milestones 1 and 2 plus a benchmark page.
 
-**If behind, drop in this order:** 4-bit quantization, then the visuals, then Qwen3-8B. Never drop the browser demo.
+**If behind, drop in this order:** the attention maps and logit lens, then training in the browser (keep native training), then all training, then the quantization report. Never drop the browser demo.
 
 ## Rules
 
