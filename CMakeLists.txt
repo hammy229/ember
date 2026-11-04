@@ -47,6 +47,9 @@ target_link_libraries(ember_cli PRIVATE ember)
 target_link_libraries(ember_cli PRIVATE ember_warnings)
 set_target_properties(ember_cli PROPERTIES OUTPUT_NAME "ember")
 
+add_executable(ember_bench tools/ember_bench.cpp)
+target_link_libraries(ember_bench PRIVATE ember ember_warnings)
+
 if(EMBER_BUILD_TESTS)
   include(FetchContent)
   FetchContent_Declare(
@@ -58,7 +61,7 @@ if(EMBER_BUILD_TESTS)
   FetchContent_MakeAvailable(googletest)
 
   enable_testing()
-  add_executable(ember_tests tests/version_test.cpp tests/status_test.cpp)
+  add_executable(ember_tests tests/version_test.cpp tests/status_test.cpp tests/timer_test.cpp)
   target_link_libraries(ember_tests PRIVATE ember GTest::gtest_main)
   target_link_libraries(ember_tests PRIVATE ember_warnings)
 
