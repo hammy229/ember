@@ -8,7 +8,7 @@ Ember is an LLM inference engine written from scratch in C++20, with no ML frame
 
 | Date | Goal | Status |
 |---|---|---|
-| Wed, Nov 4 | Repo, build presets, tests, CI, WebAssembly build, site skeleton | In progress |
+| Wed, Nov 4 | Repo, build presets, tests, CI, WebAssembly build, site skeleton | Done |
 | Thu, Nov 5 | Tensors and memory allocator | |
 | Fri, Nov 6 | Matrix operations, softmax, first benchmark | |
 | Sat, Nov 7 | Load model weights with memory mapping (15 MB tiny model) | |
