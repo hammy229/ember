@@ -1,0 +1,37 @@
+# Runs when this repo is mirrored to GitLab. Keep it in step with .github/workflows/ci.yml.
+stages:
+  - test
+  - web
+
+.native:
+  stage: test
+  image: ubuntu:24.04
+  before_script:
+    - apt-get update
+    - apt-get install -y cmake ninja-build g++ git
+  script:
+    - cmake --preset $PRESET
+    - cmake --build --preset $PRESET
+    - ctest --preset $PRESET
+
+release:
+  extends: .native
+  variables:
+    PRESET: release
+
+sanitize:
+  extends: .native
+  variables:
+    PRESET: sanitize
+
+web:
+  stage: web
+  image: emscripten/emsdk:latest
+  before_script:
+    - apt-get update
+    - apt-get install -y ninja-build
+  script:
+    - ./scripts/build-wasm.sh
+    - cd web
+    - npm ci
+    - npm run build
