@@ -1,11 +1,11 @@
+#include "ember/timer.h"
+
 #include <gtest/gtest.h>
 
 #include <chrono>
 #include <stdexcept>
 #include <thread>
 #include <vector>
-
-#include "ember/timer.h"
 
 TEST(Stopwatch, ElapsedIsNonNegativeAndGrows) {
   ember::Stopwatch sw;

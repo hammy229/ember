@@ -43,7 +43,8 @@ inline TimingSummary Summarize(std::vector<double> samples_ms) {
   out.min_ms = samples_ms.front();
   out.max_ms = samples_ms.back();
   out.mean_ms = std::accumulate(samples_ms.begin(), samples_ms.end(), 0.0) / static_cast<double>(n);
-  out.median_ms = (n % 2 == 1) ? samples_ms[n / 2] : (samples_ms[n / 2 - 1] + samples_ms[n / 2]) / 2.0;
+  out.median_ms =
+      (n % 2 == 1) ? samples_ms[n / 2] : (samples_ms[n / 2 - 1] + samples_ms[n / 2]) / 2.0;
   return out;
 }
 

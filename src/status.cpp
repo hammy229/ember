@@ -20,9 +20,7 @@ const char* CodeName(StatusCode code) {
 
 }  // namespace
 
-Status Status::NotFound(std::string_view message) {
-  return Status(StatusCode::kNotFound, message);
-}
+Status Status::NotFound(std::string_view message) { return Status(StatusCode::kNotFound, message); }
 
 Status Status::InvalidFormat(std::string_view message) {
   return Status(StatusCode::kInvalidFormat, message);
