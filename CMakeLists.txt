@@ -6,7 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-option(EMBER_BUILD_TESTS "Build the test suite" ON)
+option(EMBER_BUILD_TESTS "Build the test suite" ${PROJECT_IS_TOP_LEVEL})
+option(EMBER_WERROR "Treat warnings as errors" ${PROJECT_IS_TOP_LEVEL})
 option(EMBER_SANITIZE "Build with AddressSanitizer and UBSan" OFF)
 
 if(EMBER_SANITIZE)
@@ -16,7 +17,10 @@ endif()
 
 # One place for the warning flags. Every target links this.
 add_library(ember_warnings INTERFACE)
-target_compile_options(ember_warnings INTERFACE -Wall -Wextra -Wpedantic -Wconversion -Werror)
+target_compile_options(ember_warnings INTERFACE -Wall -Wextra -Wpedantic -Wconversion)
+if(EMBER_WERROR)
+  target_compile_options(ember_warnings INTERFACE -Werror)
+endif()
 
 configure_file(src/version.cpp.in generated/version.cpp @ONLY)
 
