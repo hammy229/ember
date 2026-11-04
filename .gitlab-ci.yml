@@ -26,7 +26,7 @@ sanitize:
 
 web:
   stage: web
-  image: emscripten/emsdk:latest
+  image: emscripten/emsdk:6.0.13
   before_script:
     - apt-get update
     - apt-get install -y ninja-build
