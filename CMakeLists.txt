@@ -76,4 +76,11 @@ if(EMBER_BUILD_TESTS)
 
   add_test(NAME bench_runs COMMAND ember_bench 1 1000)
   set_tests_properties(bench_runs PROPERTIES PASS_REGULAR_EXPRESSION "median")
+
+  foreach(bad_args "abc" "0" "-1" "5x" "1 0" "1 2 3" "99999999999999999999" "1 2000000000")
+    string(REPLACE " " "_" name "${bad_args}")
+    separate_arguments(args UNIX_COMMAND "${bad_args}")
+    add_test(NAME bench_rejects_${name} COMMAND ember_bench ${args})
+    set_tests_properties(bench_rejects_${name} PROPERTIES PASS_REGULAR_EXPRESSION "usage:")
+  endforeach()
 endif()
