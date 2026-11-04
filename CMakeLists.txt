@@ -68,4 +68,12 @@ if(EMBER_BUILD_TESTS)
 
   include(GoogleTest)
   gtest_discover_tests(ember_tests)
+
+  # The executables get run too, so a broken main() fails the suite.
+  add_test(NAME cli_prints_version COMMAND ember_cli)
+  set_tests_properties(cli_prints_version PROPERTIES
+    PASS_REGULAR_EXPRESSION "^ember ${PROJECT_VERSION}\n$")
+
+  add_test(NAME bench_runs COMMAND ember_bench 1 1000)
+  set_tests_properties(bench_runs PROPERTIES PASS_REGULAR_EXPRESSION "median")
 endif()
