@@ -58,7 +58,15 @@ int main(int argc, char** argv) {
   }
 
   std::vector<float> data(size, 1.0F);
-  const ember::TimingSummary s = ember::Repeat([&] { g_sink = SumAll(data); }, repeats, 2);
+  // Change the input each run. If it never changed, the compiler could sum once and reuse the
+  // answer, and the benchmark would time nothing.
+  std::size_t run = 0;
+  const ember::TimingSummary s = ember::Repeat(
+      [&] {
+        data[0] = static_cast<float>(run++ % 2);
+        g_sink = SumAll(data);
+      },
+      repeats, 2);
 
   std::cout << std::fixed << std::setprecision(3);
   std::cout << "bench: sum of " << size << " floats, " << s.count << " runs\n";
