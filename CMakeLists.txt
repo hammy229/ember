@@ -14,16 +14,20 @@ if(EMBER_SANITIZE)
   add_link_options(-fsanitize=address,undefined)
 endif()
 
+# One place for the warning flags. Every target links this.
+add_library(ember_warnings INTERFACE)
+target_compile_options(ember_warnings INTERFACE -Wall -Wextra -Wpedantic -Wconversion -Werror)
+
 configure_file(src/version.cpp.in generated/version.cpp @ONLY)
 
 add_library(ember STATIC ${CMAKE_CURRENT_BINARY_DIR}/generated/version.cpp)
 target_include_directories(ember PUBLIC include)
-target_compile_options(ember PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Werror)
+target_link_libraries(ember PRIVATE ember_warnings)
 
 if(EMSCRIPTEN)
   add_executable(ember_wasm wasm/exports.cpp)
   target_link_libraries(ember_wasm PRIVATE ember)
-  target_compile_options(ember_wasm PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Werror)
+  target_link_libraries(ember_wasm PRIVATE ember_warnings)
   set_target_properties(ember_wasm PROPERTIES OUTPUT_NAME "ember" SUFFIX ".js")
   target_link_options(ember_wasm PRIVATE
     -sMODULARIZE=1
@@ -38,7 +42,7 @@ endif()
 
 add_executable(ember_cli tools/ember_cli.cpp)
 target_link_libraries(ember_cli PRIVATE ember)
-target_compile_options(ember_cli PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Werror)
+target_link_libraries(ember_cli PRIVATE ember_warnings)
 set_target_properties(ember_cli PROPERTIES OUTPUT_NAME "ember")
 
 if(EMBER_BUILD_TESTS)
@@ -54,7 +58,7 @@ if(EMBER_BUILD_TESTS)
   enable_testing()
   add_executable(ember_tests tests/version_test.cpp)
   target_link_libraries(ember_tests PRIVATE ember GTest::gtest_main)
-  target_compile_options(ember_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Werror)
+  target_link_libraries(ember_tests PRIVATE ember_warnings)
 
   include(GoogleTest)
   gtest_discover_tests(ember_tests)
