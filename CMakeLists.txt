@@ -64,6 +64,7 @@ if(EMBER_BUILD_TESTS)
   add_executable(ember_tests tests/version_test.cpp tests/status_test.cpp tests/timer_test.cpp)
   target_link_libraries(ember_tests PRIVATE ember GTest::gtest_main)
   target_link_libraries(ember_tests PRIVATE ember_warnings)
+  target_compile_definitions(ember_tests PRIVATE EMBER_PROJECT_VERSION="${PROJECT_VERSION}")
 
   include(GoogleTest)
   gtest_discover_tests(ember_tests)

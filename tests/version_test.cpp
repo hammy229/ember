@@ -5,5 +5,5 @@
 #include "ember/version.h"
 
 TEST(Version, MatchesTheProjectVersion) {
-  EXPECT_EQ(std::string_view(ember::version()), "0.1.0");
+  EXPECT_EQ(std::string_view(ember::version()), EMBER_PROJECT_VERSION);
 }
