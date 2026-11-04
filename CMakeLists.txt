@@ -20,7 +20,9 @@ target_compile_options(ember_warnings INTERFACE -Wall -Wextra -Wpedantic -Wconve
 
 configure_file(src/version.cpp.in generated/version.cpp @ONLY)
 
-add_library(ember STATIC ${CMAKE_CURRENT_BINARY_DIR}/generated/version.cpp)
+add_library(ember STATIC
+  ${CMAKE_CURRENT_BINARY_DIR}/generated/version.cpp
+  src/status.cpp)
 target_include_directories(ember PUBLIC include)
 target_link_libraries(ember PRIVATE ember_warnings)
 
@@ -56,7 +58,7 @@ if(EMBER_BUILD_TESTS)
   FetchContent_MakeAvailable(googletest)
 
   enable_testing()
-  add_executable(ember_tests tests/version_test.cpp)
+  add_executable(ember_tests tests/version_test.cpp tests/status_test.cpp)
   target_link_libraries(ember_tests PRIVATE ember GTest::gtest_main)
   target_link_libraries(ember_tests PRIVATE ember_warnings)
 
