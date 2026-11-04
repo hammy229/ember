@@ -13,8 +13,9 @@ enum class StatusCode {
 };
 
 // Result of an operation that can fail, such as opening a model file.
-// A default-constructed Status is OK.
-class Status {
+// A default-constructed Status is OK. Ignoring a returned Status is a compile error here,
+// because the build treats warnings as errors.
+class [[nodiscard]] Status {
  public:
   Status() = default;
 
