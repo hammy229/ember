@@ -17,11 +17,11 @@ Ember is an LLM inference engine written from scratch in C++20, with no ML frame
 | Tue, Nov 10 | Tokenizer, sampling, KV cache, text generation | |
 | Wed, Nov 11 | **Milestone 2: text generation in the browser**, first private site | |
 | Thu, Nov 12 | Light day, MedData is due at 2pm CST. Catch-up only | |
-| Fri, Nov 13 | Run Qwen3 0.6B on the Mac | |
-| Sat, Nov 14 | NEON SIMD and multithreading, with before-and-after benchmarks | |
-| Sun, Nov 15 | 8-bit and 4-bit quantization | |
-| Mon, Nov 16 | **Milestone 3: Qwen3-8B runs on the Mac**, final benchmarks | |
-| Tue, Nov 17 | "Inside the engine" visuals, benchmark and architecture pages | |
+| Fri, Nov 13 | Run Qwen3 0.6B on the Mac, NEON SIMD with before-and-after benchmarks | |
+| Sat, Nov 14 | Multithreading, 8-bit quantization, quantization quality report | |
+| Sun, Nov 15 | Autograd and optimizer, with gradients checked numerically | |
+| Mon, Nov 16 | Train a tiny character-level transformer natively, final benchmarks | |
+| Tue, Nov 17 | **Milestone 3: training runs live in the browser**, attention maps and logit lens, benchmark and architecture pages | |
 | Wed, Nov 18 | **Feature freeze:** ECC code and security reviews, demo video, rehearsal | |
 | Thu, Nov 19 | **Demo day, resume update, publish** | |
 | Fri, Nov 20 | Fixes only, no new features | |
