@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# Free minutes are limited, so a new push cancels the older run on the same branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   native:
     strategy:
@@ -17,6 +22,7 @@ jobs:
         preset: [release, sanitize]
     # Linux only while the repo is private: macOS minutes count 10x against the free allowance.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Install Ninja
@@ -27,6 +33,7 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
