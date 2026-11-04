@@ -1,0 +1,7 @@
+#include "ember/version.h"
+
+namespace ember {
+
+const char* version() noexcept { return "@PROJECT_VERSION@"; }
+
+}  // namespace ember
