@@ -1,7 +1,15 @@
 # Runs when this repo is mirrored to GitLab. Keep it in step with .github/workflows/ci.yml.
 stages:
+  - format
   - test
   - web
+
+format:
+  stage: format
+  image: python:3.13
+  script:
+    - pip install clang-format==18.1.8
+    - git ls-files '*.h' '*.cpp' | xargs clang-format --dry-run --Werror
 
 .native:
   stage: test

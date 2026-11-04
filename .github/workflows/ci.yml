@@ -15,6 +15,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned because clang-format output changes between versions.
+      - run: pipx install clang-format==18.1.8
+      - run: git ls-files '*.h' '*.cpp' | xargs clang-format --dry-run --Werror
+
   native:
     strategy:
       fail-fast: false

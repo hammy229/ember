@@ -10,6 +10,7 @@ C++20 LLM inference engine with no ML framework, plus a Next.js site in `web/` t
 
 ## Checks before a commit
 
+- Format: `git ls-files '*.h' '*.cpp' | xargs uvx --from clang-format==18.1.8 clang-format -i`.
 - C++: `cmake --build --preset debug && ctest --preset debug`, and the same with `sanitize`.
 - WebAssembly and site: `./scripts/build-wasm.sh`, then `node tests/wasm_smoke.mjs`, then `npm run build` in `web/`.
 
