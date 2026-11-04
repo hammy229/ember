@@ -1,0 +1,27 @@
+# C++ builds
+build/
+compile_commands.json
+.cache/
+
+# Model weights and patient data never go in this repo
+models/
+data/
+*.safetensors
+*.gguf
+*.bin
+*.pt
+*.csv
+
+# Secrets
+.env
+.env.*
+*.pem
+
+# Web
+web/node_modules/
+web/.next/
+web/out/
+web/public/wasm/
+
+.DS_Store
+.claude/
