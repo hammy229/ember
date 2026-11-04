@@ -10,7 +10,15 @@ data/
 *.gguf
 *.bin
 *.pt
+*.pth
+*.ckpt
+*.onnx
+*.npz
+*.h5
 *.csv
+*.tsv
+*.parquet
+*.xlsx
 
 # Secrets
 .env
