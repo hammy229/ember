@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <span>
 #include <string>
 #include <utility>
@@ -30,6 +31,42 @@ Dims CopyDims(const Shape& shape) {
   Dims dims{};
   std::copy(shape.dims().begin(), shape.dims().end(), dims.begin());
   return dims;
+}
+
+struct ByteRange {
+  const std::byte* first;
+  const std::byte* end;
+};
+
+// From the lowest to one past the highest byte the tensor touches. Strides are never negative, so
+// the lowest byte is always the first element. Only call this on a tensor with elements.
+ByteRange RangeOf(const TensorView& tensor) {
+  std::size_t last_element = 0;
+  for (std::size_t i = 0; i < tensor.rank(); ++i) {
+    last_element += (tensor.dim(i) - 1) * tensor.stride(i);
+  }
+  const std::size_t element_bytes = SizeOf(tensor.dtype());
+  return {tensor.raw_data(), tensor.raw_data() + (last_element + 1) * element_bytes};
+}
+
+bool Overlaps(const ByteRange& a, const ByteRange& b) {
+  // std::less gives a total order even for pointers into different blocks of memory.
+  const std::less<const std::byte*> before;
+  return before(a.first, b.end) && before(b.first, a.end);
+}
+
+void CopyAxis(const TensorView& source, const Tensor& target, std::size_t axis,
+              const std::byte* from, std::byte* to) {
+  const std::size_t element_bytes = SizeOf(source.dtype());
+  if (axis == source.rank()) {
+    std::memcpy(to, from, element_bytes);
+    return;
+  }
+  const std::size_t from_step = source.stride(axis) * element_bytes;
+  const std::size_t to_step = target.stride(axis) * element_bytes;
+  for (std::size_t i = 0; i < source.dim(axis); ++i) {
+    CopyAxis(source, target, axis + 1, from + i * from_step, to + i * to_step);
+  }
 }
 
 Shape EmptyShape() {
@@ -164,6 +201,28 @@ StatusOr<Tensor> Tensor::Transpose(std::size_t axis_a, std::size_t axis_b) const
 StatusOr<Tensor> Tensor::Reshape(Shape shape) const {
   EMBER_ASSIGN_OR_RETURN(const TensorView view, TensorView::Reshape(shape));
   return Tensor(view);
+}
+
+Status Tensor::CopyFrom(const TensorView& source) const {
+  if (source.dtype() != dtype() || !(source.shape() == shape())) {
+    return Status::InvalidArgument("cannot copy " + source.ToString() + " into " + ToString());
+  }
+  if (element_count() == 0) return Status::Ok();
+  if (Overlaps(RangeOf(source), RangeOf(*this))) {
+    return Status::InvalidArgument("cannot copy between tensors that overlap in memory");
+  }
+  if (source.is_contiguous() && is_contiguous()) {
+    std::memcpy(raw_data(), source.raw_data(), byte_size());
+  } else {
+    CopyAxis(source, *this, 0, source.raw_data(), raw_data());
+  }
+  return Status::Ok();
+}
+
+StatusOr<Tensor> Tensor::CopyOf(Arena& arena, const TensorView& source) {
+  EMBER_ASSIGN_OR_RETURN(const Tensor copy, Uninitialized(arena, source.dtype(), source.shape()));
+  EMBER_RETURN_IF_ERROR(copy.CopyFrom(source));
+  return copy;
 }
 
 }  // namespace ember

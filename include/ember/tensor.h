@@ -144,7 +144,33 @@ class Tensor : public TensorView {
   StatusOr<Tensor> Transpose(std::size_t axis_a, std::size_t axis_b) const;
   StatusOr<Tensor> Reshape(Shape shape) const;
 
+  // Copies the numbers of a tensor with the same type and shape into this one, following both sets
+  // of strides. Fails if the two overlap in memory, because transposing a matrix onto itself this
+  // way would overwrite numbers before reading them and silently give the wrong answer.
+  Status CopyFrom(const TensorView& source) const;
+
+  // A new contiguous tensor holding a copy of the numbers. This is how to reshape a tensor that is
+  // not contiguous.
+  static StatusOr<Tensor> CopyOf(Arena& arena, const TensorView& source);
+
+  // Sets every element. Using the wrong element type is a bug and aborts.
+  template <TensorElement T>
+  void Fill(T value) const {
+    EMBER_CHECK(dtype() == kDTypeOf<T>, "filled a tensor with the wrong element type");
+    FillAxis(0, data<T>(), value);
+  }
+
  private:
+  template <TensorElement T>
+  void FillAxis(std::size_t axis, T* first, T value) const {
+    if (element_count() == 0) return;
+    if (axis == rank()) {
+      *first = value;
+      return;
+    }
+    for (std::size_t i = 0; i < dim(axis); ++i) FillAxis(axis + 1, first + i * stride(axis), value);
+  }
+
   // Every Tensor comes from writable memory, which is what makes the const_casts above safe.
   explicit Tensor(TensorView view) : TensorView(view) {}
 

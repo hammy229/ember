@@ -368,6 +368,151 @@ TEST(TensorViews, AViewOfAViewCannotWrite) {
       std::is_same_v<decltype(std::declval<Tensor>().Slice(0, 0, 1)), ember::StatusOr<Tensor>>);
 }
 
+TEST(TensorCopy, CopiesContiguousNumbers) {
+  Arena arena;
+  const Tensor source = Counting2x3(arena);
+  const Tensor target = *Tensor::Zeros(arena, DType::kF32, source.shape());
+  ASSERT_TRUE(target.CopyFrom(source).ok());
+  EXPECT_EQ(target.at<float>(1, 2), 5.0F);
+  EXPECT_NE(target.raw_data(), source.raw_data());
+}
+
+TEST(TensorCopy, FollowsTheStridesOfATranspose) {
+  Arena arena;
+  const Tensor source = Counting2x3(arena);
+  const auto swapped = source.Transpose(0, 1);
+  ASSERT_TRUE(swapped.ok());
+  const Tensor target = *Tensor::Zeros(arena, DType::kF32, swapped->shape());
+  ASSERT_TRUE(target.CopyFrom(*swapped).ok());
+  EXPECT_TRUE(target.is_contiguous());
+  // The numbers are now physically in column order.
+  const std::array<float, 6> expected{0, 3, 1, 4, 2, 5};
+  for (std::size_t i = 0; i < expected.size(); ++i) EXPECT_EQ(target.data<float>()[i], expected[i]);
+}
+
+TEST(TensorCopy, CanWriteIntoASlice) {
+  Arena arena;
+  const Tensor target = *Tensor::Zeros(arena, DType::kF32, *Shape::Make({2, 3}));
+  const std::vector<float> column{7, 8};
+  const Tensor source = *Tensor::FromValues<float>(arena, *Shape::Make({2, 1}), column);
+  const auto slot = target.Slice(1, 1, 1);
+  ASSERT_TRUE(slot.ok());
+  ASSERT_TRUE(slot->CopyFrom(source).ok());
+  EXPECT_EQ(target.at<float>(0, 0), 0.0F);
+  EXPECT_EQ(target.at<float>(0, 1), 7.0F);
+  EXPECT_EQ(target.at<float>(1, 1), 8.0F);
+  EXPECT_EQ(target.at<float>(1, 2), 0.0F);
+}
+
+TEST(TensorCopy, HandlesScalarsAndEmptyTensors) {
+  Arena arena;
+  const std::array<float, 1> value{3.0F};
+  const Tensor scalar = *Tensor::FromValues<float>(arena, Shape{}, value);
+  const Tensor target = *Tensor::Zeros(arena, DType::kF32, Shape{});
+  ASSERT_TRUE(target.CopyFrom(scalar).ok());
+  EXPECT_EQ(target.at<float>(), 3.0F);
+
+  const Tensor empty = *Tensor::Zeros(arena, DType::kF32, *Shape::Make({0, 2}));
+  EXPECT_TRUE(empty.CopyFrom(empty).ok());
+}
+
+TEST(TensorCopy, RejectsADifferentShapeOrType) {
+  Arena arena;
+  const Tensor source = Counting2x3(arena);
+  const Tensor wrong_shape = *Tensor::Zeros(arena, DType::kF32, *Shape::Make({3, 2}));
+  const Tensor wrong_type = *Tensor::Zeros(arena, DType::kI32, source.shape());
+  EXPECT_FALSE(wrong_shape.CopyFrom(source).ok());
+  EXPECT_FALSE(wrong_type.CopyFrom(source).ok());
+}
+
+TEST(TensorCopy, RefusesToCopyOntoItself) {
+  Arena arena;
+  const std::vector<float> values{1, 2, 3, 4};
+  const Tensor square = *Tensor::FromValues<float>(arena, *Shape::Make({2, 2}), values);
+  const auto swapped = square.Transpose(0, 1);
+  ASSERT_TRUE(swapped.ok());
+
+  const ember::Status status = square.CopyFrom(*swapped);
+  ASSERT_FALSE(status.ok());
+  EXPECT_EQ(status.code(), ember::StatusCode::kInvalidArgument);
+  // The refusal happened before any number moved.
+  EXPECT_EQ(square.at<float>(0, 1), 2.0F);
+  EXPECT_EQ(square.at<float>(1, 0), 3.0F);
+}
+
+TEST(TensorCopy, AllowsNeighborsThatDoNotOverlap) {
+  Arena arena;
+  const std::vector<float> values{1, 2, 3, 4};
+  const Tensor line = *Tensor::FromValues<float>(arena, *Shape::Make({4}), values);
+  const auto left = line.Slice(0, 0, 2);
+  const auto right = line.Slice(0, 2, 2);
+  ASSERT_TRUE(left.ok() && right.ok());
+  ASSERT_TRUE(left->CopyFrom(*right).ok());
+  EXPECT_EQ(line.at<float>(0), 3.0F);
+  EXPECT_EQ(line.at<float>(1), 4.0F);
+}
+
+TEST(TensorCopy, RefusesSlicesThatOverlapByOneElement) {
+  Arena arena;
+  const std::vector<float> values{1, 2, 3};
+  const Tensor line = *Tensor::FromValues<float>(arena, *Shape::Make({3}), values);
+  EXPECT_FALSE(line.Slice(0, 0, 2)->CopyFrom(*line.Slice(0, 1, 2)).ok());
+}
+
+TEST(TensorCopy, CopyOfMakesATransposeContiguous) {
+  Arena arena;
+  const Tensor source = Counting2x3(arena);
+  const auto swapped = source.Transpose(0, 1);
+  ASSERT_TRUE(swapped.ok());
+  ASSERT_FALSE(swapped->Reshape(*Shape::Make({6})).ok());
+
+  const auto copy = Tensor::CopyOf(arena, *swapped);
+  ASSERT_TRUE(copy.ok());
+  const auto flat = copy->Reshape(*Shape::Make({6}));
+  ASSERT_TRUE(flat.ok());
+  EXPECT_EQ(flat->at<float>(1), 3.0F);
+}
+
+TEST(TensorCopy, CopyOfIsIndependentOfTheOriginal) {
+  Arena arena;
+  const Tensor source = Counting2x3(arena);
+  const Tensor copy = *Tensor::CopyOf(arena, source);
+  source.at<float>(0, 0) = 50.0F;
+  EXPECT_EQ(copy.at<float>(0, 0), 0.0F);
+}
+
+TEST(TensorFill, SetsEveryElement) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  tensor.Fill(2.5F);
+  for (std::size_t i = 0; i < 6; ++i) EXPECT_EQ(tensor.data<float>()[i], 2.5F);
+}
+
+TEST(TensorFill, TouchesOnlyTheSlice) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  tensor.Slice(1, 2, 1)->Fill(-1.0F);
+  const std::array<float, 6> expected{0, 1, -1, 3, 4, -1};
+  for (std::size_t i = 0; i < expected.size(); ++i) EXPECT_EQ(tensor.data<float>()[i], expected[i]);
+}
+
+TEST(TensorFill, WorksOnScalarsAndEmptyTensorsAndOtherTypes) {
+  Arena arena;
+  const Tensor scalar = *Tensor::Zeros(arena, DType::kI32, Shape{});
+  scalar.Fill(std::int32_t{9});
+  EXPECT_EQ(scalar.at<std::int32_t>(), 9);
+
+  const Tensor empty = *Tensor::Zeros(arena, DType::kI8, *Shape::Make({0}));
+  empty.Fill(std::int8_t{1});
+  EXPECT_EQ(empty.element_count(), 0U);
+}
+
+TEST(TensorDeathTest, FillingWithTheWrongTypeIsABug) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  EXPECT_DEATH(tensor.Fill(std::int32_t{1}), "wrong element type");
+}
+
 TEST(TensorDeathTest, ReadingAsTheWrongTypeIsABug) {
   Arena arena;
   const Tensor tensor = Counting2x3(arena);
