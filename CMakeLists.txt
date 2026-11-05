@@ -70,6 +70,7 @@ if(EMBER_BUILD_TESTS)
   enable_testing()
   add_executable(ember_tests
     tests/aligned_buffer_test.cpp
+    tests/arena_random_test.cpp
     tests/arena_test.cpp
     tests/check_test.cpp
     tests/status_or_test.cpp
