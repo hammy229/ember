@@ -73,6 +73,7 @@ if(EMBER_BUILD_TESTS)
     tests/arena_random_test.cpp
     tests/arena_test.cpp
     tests/check_test.cpp
+    tests/dtype_test.cpp
     tests/status_or_test.cpp
     tests/status_test.cpp
     tests/timer_test.cpp
