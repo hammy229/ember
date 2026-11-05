@@ -64,8 +64,9 @@ class Arena {
   Mark mark() const { return Mark{chunk_index_, offset_, used_bytes_}; }
 
   // Frees everything allocated since the mark and keeps the chunks to reuse. Pointers handed out
-  // after the mark are dead. Marks must be undone newest first: rewinding to a position ahead of
-  // the current one is a bug and aborts.
+  // after the mark are dead. Marks must be undone newest first, and a mark is dead once the arena
+  // rewinds past it. Rewinding to a position ahead of the current one aborts, but that only catches
+  // some misuse: a dead mark that happens to sit behind the current position is not detected.
   void Rewind(const Mark& mark);
 
   // Frees everything and keeps the chunks. peak_bytes() survives, because its job is to report
@@ -74,7 +75,8 @@ class Arena {
 
   // Bytes handed out since the last reset, counting alignment padding.
   std::size_t used_bytes() const { return used_bytes_; }
-  // The most used_bytes() has ever been. This tells you how to size the arena for a workload.
+  // The most used_bytes() has ever been. A rough guide for sizing an arena, since it leaves out the
+  // space skipped at the end of each chunk, and sanitizer builds add a gap per allocation.
   std::size_t peak_bytes() const { return peak_bytes_; }
   // Bytes held from the system across all chunks.
   std::size_t capacity_bytes() const { return capacity_bytes_; }

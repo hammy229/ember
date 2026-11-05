@@ -111,9 +111,9 @@ TEST(Arena, ZeroBytesGivesAnAlignedPointerAndUsesNoSpace) {
 
 TEST(Arena, TracksUsedAndPeakBytes) {
   Arena arena;
-  ASSERT_TRUE(arena.Allocate(100, 1).ok());
-  EXPECT_EQ(arena.used_bytes(), 100U);
-  ASSERT_TRUE(arena.Allocate(28, 1).ok());
+  ASSERT_TRUE(arena.Allocate(96, 1).ok());
+  EXPECT_EQ(arena.used_bytes(), 96U);
+  ASSERT_TRUE(arena.Allocate(32, 1).ok());
   EXPECT_EQ(arena.used_bytes(), 128U + Arena::kRedzoneBytes);
   EXPECT_EQ(arena.peak_bytes(), 128U + Arena::kRedzoneBytes);
 }
@@ -354,6 +354,15 @@ TEST(ArenaSanitizerDeathTest, RunningOffAnUnevenBlockIsCaught) {
   ASSERT_TRUE(block.ok());
   ReadOneByte(*block + 12);
   EXPECT_DEATH(ReadOneByte(*block + 13), "use-after-poison");
+}
+
+TEST(ArenaSanitizerDeathTest, RunningOffTheStartOfAByteAlignedBlockIsCaught) {
+  Arena arena;
+  ASSERT_TRUE(arena.Allocate(3, 1).ok());
+  const auto block = arena.Allocate(16, 1);
+  ASSERT_TRUE(block.ok());
+  ReadOneByte(*block);
+  EXPECT_DEATH(ReadOneByte(*block - 1), "use-after-poison");
 }
 
 TEST(ArenaSanitizerDeathTest, MemoryNeverHandedOutIsCaught) {

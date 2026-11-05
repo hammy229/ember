@@ -23,8 +23,13 @@ Arena::~Arena() {
   for (AlignedBuffer& chunk : chunks_) EMBER_UNPOISON(chunk.data(), chunk.size());
 }
 
-std::byte* Arena::TryBump(std::size_t bytes, std::size_t alignment) {
+std::byte* Arena::TryBump(std::size_t bytes, std::size_t requested_alignment) {
   if (chunks_.empty()) return nullptr;
+  // AddressSanitizer tracks memory in 8 byte units and can only mark the start of a unit as usable.
+  // A block starting mid-unit would make the end of the gap before it usable too, hiding an
+  // underrun.
+  const std::size_t alignment =
+      kRedzoneBytes > 0 ? std::max<std::size_t>(requested_alignment, 8) : requested_alignment;
   AlignedBuffer& chunk = chunks_[chunk_index_];
 
   // Align the address, not the offset, because a large alignment can exceed the chunk's own.
