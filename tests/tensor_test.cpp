@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <type_traits>
 #include <vector>
@@ -201,6 +202,170 @@ TEST(TensorView, CopiesLookAtTheSameNumbers) {
 TEST(TensorView, ToStringShowsTypeAndShape) {
   Arena arena;
   EXPECT_EQ(Counting2x3(arena).ToString(), "f32[2, 3]");
+}
+
+TEST(TensorViews, AFreshTensorIsContiguous) {
+  Arena arena;
+  EXPECT_TRUE(Counting2x3(arena).is_contiguous());
+}
+
+TEST(TensorViews, SliceARowStaysContiguous) {
+  Arena arena;
+  const auto row = Counting2x3(arena).Slice(0, 1, 1);
+  ASSERT_TRUE(row.ok());
+  EXPECT_EQ(row->ToString(), "f32[1, 3]");
+  EXPECT_TRUE(row->is_contiguous());
+  EXPECT_EQ(row->at<float>(0, 0), 3.0F);
+  EXPECT_EQ(row->at<float>(0, 2), 5.0F);
+}
+
+TEST(TensorViews, SliceAColumnIsNotContiguous) {
+  Arena arena;
+  const auto column = Counting2x3(arena).Slice(1, 2, 1);
+  ASSERT_TRUE(column.ok());
+  EXPECT_EQ(column->ToString(), "f32[2, 1]");
+  EXPECT_EQ(column->at<float>(0, 0), 2.0F);
+  EXPECT_EQ(column->at<float>(1, 0), 5.0F);
+  EXPECT_FALSE(column->is_contiguous());
+}
+
+TEST(TensorViews, SliceKeepsSharingTheNumbers) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  const auto column = tensor.Slice(1, 1, 2);
+  ASSERT_TRUE(column.ok());
+  column->at<float>(1, 1) = 99.0F;
+  EXPECT_EQ(tensor.at<float>(1, 2), 99.0F);
+}
+
+TEST(TensorViews, SlicesOfSlicesAddUp) {
+  Arena arena;
+  const std::vector<float> values{0, 1, 2, 3, 4, 5, 6, 7};
+  const Tensor tensor = *Tensor::FromValues<float>(arena, *Shape::Make({8}), values);
+  const auto inner = tensor.Slice(0, 2, 5)->Slice(0, 1, 2);
+  ASSERT_TRUE(inner.ok());
+  EXPECT_EQ(inner->at<float>(0), 3.0F);
+  EXPECT_EQ(inner->at<float>(1), 4.0F);
+}
+
+TEST(TensorViews, EmptySliceIsAllowed) {
+  Arena arena;
+  const auto empty = Counting2x3(arena).Slice(1, 3, 0);
+  ASSERT_TRUE(empty.ok());
+  EXPECT_EQ(empty->element_count(), 0U);
+  EXPECT_TRUE(empty->is_contiguous());
+}
+
+TEST(TensorViews, SlicingANullEmptyTensorStaysSafe) {
+  // UBSan would flag moving the null pointer here.
+  const auto view = TensorView::Wrap(nullptr, DType::kF32, *Shape::Make({0, 8}));
+  ASSERT_TRUE(view.ok());
+  const auto slice = view->Slice(1, 2, 3);
+  ASSERT_TRUE(slice.ok());
+  EXPECT_EQ(slice->raw_data(), nullptr);
+}
+
+TEST(TensorViews, SliceRejectsWhatDoesNotFit) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  const std::size_t huge = std::numeric_limits<std::size_t>::max();
+  EXPECT_FALSE(tensor.Slice(2, 0, 1).ok());     // No such dimension.
+  EXPECT_FALSE(tensor.Slice(0, 3, 0).ok());     // Starts past the end.
+  EXPECT_FALSE(tensor.Slice(0, 1, 2).ok());     // Runs past the end.
+  EXPECT_FALSE(tensor.Slice(0, huge, 2).ok());  // start + length would wrap to a small number.
+  EXPECT_FALSE(tensor.Slice(0, 1, huge).ok());
+}
+
+TEST(TensorViews, ScalarsCannotBeSliced) {
+  const std::array<float, 1> value{1.0F};
+  const auto view = TensorView::Wrap(value.data(), DType::kF32, Shape{});
+  ASSERT_TRUE(view.ok());
+  EXPECT_FALSE(view->Slice(0, 0, 1).ok());
+}
+
+TEST(TensorViews, TransposeSwapsWithoutMovingNumbers) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  const auto swapped = tensor.Transpose(0, 1);
+  ASSERT_TRUE(swapped.ok());
+  EXPECT_EQ(swapped->ToString(), "f32[3, 2]");
+  EXPECT_EQ(swapped->raw_data(), tensor.raw_data());
+  EXPECT_FALSE(swapped->is_contiguous());
+  for (std::size_t row = 0; row < 2; ++row) {
+    for (std::size_t column = 0; column < 3; ++column) {
+      EXPECT_EQ(swapped->at<float>(column, row), tensor.at<float>(row, column));
+    }
+  }
+}
+
+TEST(TensorViews, TransposingTwiceGivesTheOriginalBack) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  const auto back = tensor.Transpose(0, 1)->Transpose(0, 1);
+  ASSERT_TRUE(back.ok());
+  EXPECT_EQ(back->shape(), tensor.shape());
+  EXPECT_TRUE(back->is_contiguous());
+  EXPECT_EQ(back->at<float>(1, 2), 5.0F);
+}
+
+TEST(TensorViews, TransposeWorksOnFourDimensions) {
+  // [batch, tokens, heads, features] to [batch, heads, tokens, features], as attention does.
+  Arena arena;
+  const auto tensor = Tensor::Zeros(arena, DType::kF32, *Shape::Make({1, 2, 3, 4}));
+  ASSERT_TRUE(tensor.ok());
+  tensor->at<float>(0, 1, 2, 3) = 8.0F;
+  const auto swapped = tensor->Transpose(1, 2);
+  ASSERT_TRUE(swapped.ok());
+  EXPECT_EQ(swapped->at<float>(0, 2, 1, 3), 8.0F);
+}
+
+TEST(TensorViews, TransposeRejectsMissingDimensions) {
+  Arena arena;
+  EXPECT_FALSE(Counting2x3(arena).Transpose(0, 2).ok());
+  EXPECT_FALSE(Counting2x3(arena).Transpose(2, 0).ok());
+}
+
+TEST(TensorViews, ReshapeKeepsTheOrderOfTheNumbers) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  const auto reshaped = tensor.Reshape(*Shape::Make({3, 2}));
+  ASSERT_TRUE(reshaped.ok());
+  EXPECT_EQ(reshaped->raw_data(), tensor.raw_data());
+  EXPECT_EQ(reshaped->at<float>(1, 0), 2.0F);
+  EXPECT_EQ(reshaped->at<float>(2, 1), 5.0F);
+}
+
+TEST(TensorViews, ReshapeCanFlattenAndAddDimensions) {
+  Arena arena;
+  const auto flat = Counting2x3(arena).Reshape(*Shape::Make({6}));
+  ASSERT_TRUE(flat.ok());
+  EXPECT_EQ(flat->at<float>(5), 5.0F);
+  const auto wider = flat->Reshape(*Shape::Make({1, 6, 1}));
+  ASSERT_TRUE(wider.ok());
+  EXPECT_EQ(wider->at<float>(0, 5, 0), 5.0F);
+}
+
+TEST(TensorViews, ReshapeRejectsADifferentCount) {
+  Arena arena;
+  const auto reshaped = Counting2x3(arena).Reshape(*Shape::Make({4, 2}));
+  ASSERT_FALSE(reshaped.ok());
+  EXPECT_EQ(reshaped.status().code(), ember::StatusCode::kInvalidArgument);
+}
+
+TEST(TensorViews, ReshapeRefusesNumbersThatAreNotContiguous) {
+  Arena arena;
+  const auto swapped = Counting2x3(arena).Transpose(0, 1);
+  ASSERT_TRUE(swapped.ok());
+  const auto reshaped = swapped->Reshape(*Shape::Make({6}));
+  ASSERT_FALSE(reshaped.ok());
+  EXPECT_EQ(reshaped.status().code(), ember::StatusCode::kInvalidArgument);
+}
+
+TEST(TensorViews, AViewOfAViewCannotWrite) {
+  static_assert(std::is_same_v<decltype(std::declval<TensorView>().Slice(0, 0, 1)),
+                               ember::StatusOr<TensorView>>);
+  static_assert(
+      std::is_same_v<decltype(std::declval<Tensor>().Slice(0, 0, 1)), ember::StatusOr<Tensor>>);
 }
 
 TEST(TensorDeathTest, ReadingAsTheWrongTypeIsABug) {

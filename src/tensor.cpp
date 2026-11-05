@@ -4,7 +4,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <string>
+#include <utility>
 
 namespace ember {
 
@@ -20,6 +22,14 @@ std::array<std::size_t, Shape::kMaxRank> RowByRowStrides(const Shape& shape) {
     stride *= std::max<std::size_t>(shape.dim(i - 1), 1);
   }
   return strides;
+}
+
+using Dims = std::array<std::size_t, Shape::kMaxRank>;
+
+Dims CopyDims(const Shape& shape) {
+  Dims dims{};
+  std::copy(shape.dims().begin(), shape.dims().end(), dims.begin());
+  return dims;
 }
 
 Shape EmptyShape() {
@@ -51,6 +61,65 @@ std::size_t TensorView::stride(std::size_t index) const {
   return strides_[index];
 }
 
+bool TensorView::is_contiguous() const {
+  if (element_count() == 0) return true;
+  std::size_t expected = 1;
+  for (std::size_t i = rank(); i > 0; --i) {
+    const std::size_t size = dim(i - 1);
+    // A dimension of size 1 is never stepped along, so its stride does not matter.
+    if (size == 1) continue;
+    if (strides_[i - 1] != expected) return false;
+    expected *= size;
+  }
+  return true;
+}
+
+StatusOr<TensorView> TensorView::Slice(std::size_t axis, std::size_t start,
+                                       std::size_t length) const {
+  if (axis >= rank()) {
+    return Status::InvalidArgument("cannot slice dimension " + std::to_string(axis) + " of " +
+                                   ToString());
+  }
+  // Written this way so a huge start plus a huge length cannot wrap around and pass.
+  if (start > dim(axis) || length > dim(axis) - start) {
+    return Status::InvalidArgument("slice of " + std::to_string(length) + " entries at " +
+                                   std::to_string(start) + " does not fit dimension " +
+                                   std::to_string(axis) + " of " + ToString());
+  }
+  Dims dims = CopyDims(shape_);
+  dims[axis] = length;
+  EMBER_ASSIGN_OR_RETURN(const Shape sliced, Shape::Make(std::span(dims.data(), rank())));
+  // An empty tensor can hold a null pointer, and moving a null pointer is undefined behavior.
+  const std::byte* const start_of_slice =
+      element_count() == 0 ? data_ : data_ + start * strides_[axis] * SizeOf(dtype_);
+  return TensorView(start_of_slice, dtype_, sliced, strides_);
+}
+
+StatusOr<TensorView> TensorView::Transpose(std::size_t axis_a, std::size_t axis_b) const {
+  if (axis_a >= rank() || axis_b >= rank()) {
+    return Status::InvalidArgument("cannot swap dimensions " + std::to_string(axis_a) + " and " +
+                                   std::to_string(axis_b) + " of " + ToString());
+  }
+  Dims dims = CopyDims(shape_);
+  Strides strides = strides_;
+  std::swap(dims[axis_a], dims[axis_b]);
+  std::swap(strides[axis_a], strides[axis_b]);
+  EMBER_ASSIGN_OR_RETURN(const Shape swapped, Shape::Make(std::span(dims.data(), rank())));
+  return TensorView(data_, dtype_, swapped, strides);
+}
+
+StatusOr<TensorView> TensorView::Reshape(Shape shape) const {
+  if (shape.element_count() != element_count()) {
+    return Status::InvalidArgument("cannot reshape " + ToString() + " to " + shape.ToString() +
+                                   ", the element counts differ");
+  }
+  if (!is_contiguous()) {
+    return Status::InvalidArgument("cannot reshape " + ToString() +
+                                   " in place because it is not contiguous, copy it first");
+  }
+  return TensorView(data_, dtype_, shape, RowByRowStrides(shape));
+}
+
 std::string TensorView::ToString() const { return std::string(Name(dtype_)) + shape_.ToString(); }
 
 StatusOr<Tensor> Tensor::Uninitialized(Arena& arena, DType dtype, Shape shape) {
@@ -79,6 +148,21 @@ StatusOr<Tensor> Tensor::FromBytes(Arena& arena, DType dtype, Shape shape, const
 
 StatusOr<Tensor> Tensor::Wrap(void* data, DType dtype, Shape shape) {
   EMBER_ASSIGN_OR_RETURN(const TensorView view, TensorView::Wrap(data, dtype, shape));
+  return Tensor(view);
+}
+
+StatusOr<Tensor> Tensor::Slice(std::size_t axis, std::size_t start, std::size_t length) const {
+  EMBER_ASSIGN_OR_RETURN(const TensorView view, TensorView::Slice(axis, start, length));
+  return Tensor(view);
+}
+
+StatusOr<Tensor> Tensor::Transpose(std::size_t axis_a, std::size_t axis_b) const {
+  EMBER_ASSIGN_OR_RETURN(const TensorView view, TensorView::Transpose(axis_a, axis_b));
+  return Tensor(view);
+}
+
+StatusOr<Tensor> Tensor::Reshape(Shape shape) const {
+  EMBER_ASSIGN_OR_RETURN(const TensorView view, TensorView::Reshape(shape));
   return Tensor(view);
 }
 

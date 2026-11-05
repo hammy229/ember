@@ -56,6 +56,24 @@ class TensorView {
     return reinterpret_cast<const T*>(data_)[OffsetOf(indices...)];
   }
 
+  // True if the elements sit next to each other in row by row order, so the tensor can be walked as
+  // a flat array. Slicing a column or transposing can make this false.
+  bool is_contiguous() const;
+
+  // These give a new look at the same numbers. Nothing is copied, so they cost next to nothing.
+
+  // Keeps `length` entries of one dimension, starting at `start`. Getting the last token out of
+  // [tokens, features] is Slice(0, tokens - 1, 1).
+  StatusOr<TensorView> Slice(std::size_t axis, std::size_t start, std::size_t length) const;
+
+  // Swaps two dimensions. Attention turns [tokens, heads, features] into [heads, tokens, features]
+  // this way, without moving a single number.
+  StatusOr<TensorView> Transpose(std::size_t axis_a, std::size_t axis_b) const;
+
+  // Reads the same numbers with another shape of the same element count. Only works on contiguous
+  // tensors, because anything else would need the numbers moved. Copy it first in that case.
+  StatusOr<TensorView> Reshape(Shape shape) const;
+
   // "f32[2, 3]".
   std::string ToString() const;
 
@@ -120,6 +138,11 @@ class Tensor : public TensorView {
   T& at(Indices... indices) const {
     return const_cast<T&>(TensorView::at<T>(indices...));
   }
+
+  // Writable versions of the views above. They still share numbers with this tensor.
+  StatusOr<Tensor> Slice(std::size_t axis, std::size_t start, std::size_t length) const;
+  StatusOr<Tensor> Transpose(std::size_t axis_a, std::size_t axis_b) const;
+  StatusOr<Tensor> Reshape(Shape shape) const;
 
  private:
   // Every Tensor comes from writable memory, which is what makes the const_casts above safe.
