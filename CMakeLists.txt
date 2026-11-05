@@ -68,6 +68,7 @@ if(EMBER_BUILD_TESTS)
   enable_testing()
   add_executable(ember_tests
     tests/check_test.cpp
+    tests/status_or_test.cpp
     tests/status_test.cpp
     tests/timer_test.cpp
     tests/version_test.cpp)
