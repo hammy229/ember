@@ -101,7 +101,9 @@ TEST_P(ArenaRandomTest, BehavesLikeTheModel) {
   }
 
   for (const Block& block : live) ExpectBlockIntact(block);
-  if (tight_limit) EXPECT_GT(failures, 0) << "the failure path never ran";
+  if (tight_limit) {
+    EXPECT_GT(failures, 0) << "the failure path never ran";
+  }
 }
 
 // The same requests after a reset must get the same addresses and no new memory. If rewinding only
