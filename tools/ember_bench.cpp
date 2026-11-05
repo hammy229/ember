@@ -7,7 +7,6 @@
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
-#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -23,6 +22,8 @@ namespace {
 
 // 1 GiB of floats. Anything bigger is a typo, not a benchmark.
 constexpr std::size_t kMaxElements = std::size_t{1} << 28;
+// Each run's time is stored, so a huge count would only run out of memory.
+constexpr std::size_t kMaxRepeats = 1000000;
 
 volatile float g_sink = 0.0F;
 volatile std::byte g_byte_sink{};
@@ -51,7 +52,8 @@ void Print(const std::string& name, const ember::TimingSummary& s) {
 }
 
 int Usage() {
-  std::cerr << "usage: ember_bench [repeats, 1 or more] [elements, 1 to " << kMaxElements << "]\n";
+  std::cerr << "usage: ember_bench [repeats, 1 to " << kMaxRepeats << "] [elements, 1 to "
+            << kMaxElements << "]\n";
   return 2;
 }
 
@@ -62,7 +64,7 @@ int main(int argc, char** argv) {
   std::size_t size = 1U << 22;
   if (argc > 3) return Usage();
   if (argc > 1) {
-    const auto parsed = ParseCount(argv[1], std::numeric_limits<std::size_t>::max());
+    const auto parsed = ParseCount(argv[1], kMaxRepeats);
     if (!parsed) return Usage();
     repeats = *parsed;
   }
