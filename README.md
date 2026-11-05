@@ -2,7 +2,7 @@
 
 An LLM inference engine written from scratch in C++20, with no ML framework. It runs natively and in the browser through WebAssembly.
 
-**Status:** early setup. The engine does not generate text yet. See [the plan](docs/PLAN.md).
+**Status:** the memory layer is done: tensors, an arena allocator, and sanitizer support. The engine does not generate text yet. See [the plan](docs/PLAN.md) and [how memory works](docs/memory.md).
 
 ## Build
 
@@ -19,7 +19,7 @@ Use the `sanitize` preset to run the tests with AddressSanitizer and UBSan, or `
 
 To use Ember inside another CMake project, add it with `add_subdirectory`. Its tests and `-Werror` stay off unless you turn on `EMBER_BUILD_TESTS` and `EMBER_WERROR`.
 
-`ember_bench [repeats] [elements]` times a placeholder workload on your machine.
+`ember_bench [repeats] [elements]` times a placeholder workload and compares the arena to the system allocator on your machine. Use the `release` preset for numbers worth reading.
 
 ## Website
 
@@ -32,4 +32,4 @@ npm ci
 npm run dev
 ```
 
-After building, `node tests/wasm_smoke.mjs` checks that the WebAssembly build loads and reports the right version.
+After building, `node tests/wasm_smoke.mjs` checks that the WebAssembly build loads, reports the right version, and passes its 32-bit memory checks.
