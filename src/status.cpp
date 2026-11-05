@@ -14,6 +14,8 @@ const char* CodeName(StatusCode code) {
       return "INVALID_FORMAT";
     case StatusCode::kInvalidArgument:
       return "INVALID_ARGUMENT";
+    case StatusCode::kOutOfMemory:
+      return "OUT_OF_MEMORY";
   }
   return "UNKNOWN";
 }
@@ -28,6 +30,10 @@ Status Status::InvalidFormat(std::string_view message) {
 
 Status Status::InvalidArgument(std::string_view message) {
   return Status(StatusCode::kInvalidArgument, message);
+}
+
+Status Status::OutOfMemory(std::string_view message) {
+  return Status(StatusCode::kOutOfMemory, message);
 }
 
 std::string Status::ToString() const {

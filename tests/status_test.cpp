@@ -32,6 +32,13 @@ TEST(Status, InvalidArgumentKeepsCodeAndMessage) {
   EXPECT_EQ(s.code(), ember::StatusCode::kInvalidArgument);
 }
 
+TEST(Status, OutOfMemoryKeepsCodeAndMessage) {
+  auto s = ember::Status::OutOfMemory("arena is full");
+  EXPECT_FALSE(s.ok());
+  EXPECT_EQ(s.code(), ember::StatusCode::kOutOfMemory);
+  EXPECT_EQ(s.ToString(), "OUT_OF_MEMORY: arena is full");
+}
+
 TEST(Status, ToStringNamesTheCodeAndMessage) {
   EXPECT_EQ(ember::Status::Ok().ToString(), "OK");
   EXPECT_EQ(ember::Status::NotFound("a.bin").ToString(), "NOT_FOUND: a.bin");

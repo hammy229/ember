@@ -10,6 +10,7 @@ enum class StatusCode {
   kNotFound,
   kInvalidFormat,
   kInvalidArgument,
+  kOutOfMemory,
 };
 
 // Result of an operation that can fail, such as opening a model file.
@@ -23,6 +24,7 @@ class [[nodiscard]] Status {
   static Status NotFound(std::string_view message);
   static Status InvalidFormat(std::string_view message);
   static Status InvalidArgument(std::string_view message);
+  static Status OutOfMemory(std::string_view message);
 
   bool ok() const { return code_ == StatusCode::kOk; }
   StatusCode code() const { return code_; }
