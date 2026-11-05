@@ -30,7 +30,8 @@ add_library(ember STATIC
   src/arena.cpp
   src/check.cpp
   src/shape.cpp
-  src/status.cpp)
+  src/status.cpp
+  src/tensor.cpp)
 target_include_directories(ember PUBLIC include)
 target_link_libraries(ember PRIVATE ember_warnings)
 
@@ -78,6 +79,7 @@ if(EMBER_BUILD_TESTS)
     tests/shape_test.cpp
     tests/status_or_test.cpp
     tests/status_test.cpp
+    tests/tensor_test.cpp
     tests/timer_test.cpp
     tests/version_test.cpp)
   target_link_libraries(ember_tests PRIVATE ember GTest::gtest_main)

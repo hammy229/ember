@@ -1,0 +1,238 @@
+#include "ember/tensor.h"
+
+#include <gtest/gtest.h>
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <type_traits>
+#include <vector>
+
+namespace {
+
+using ember::Arena;
+using ember::DType;
+using ember::Shape;
+using ember::Tensor;
+using ember::TensorView;
+
+// Writing through a TensorView must not compile. This is the promise that protects weights mapped
+// from a read-only file.
+static_assert(std::is_same_v<decltype(std::declval<TensorView>().data<float>()), const float*>);
+static_assert(std::is_same_v<decltype(std::declval<TensorView>().at<float>(0)), const float&>);
+static_assert(std::is_same_v<decltype(std::declval<Tensor>().data<float>()), float*>);
+static_assert(std::is_same_v<decltype(std::declval<Tensor>().at<float>(0)), float&>);
+static_assert(std::is_convertible_v<Tensor, TensorView>, "reading a Tensor must just work");
+static_assert(!std::is_convertible_v<TensorView, Tensor>, "a view must not become writable");
+// Passing tensors around must stay as cheap as copying a few words.
+static_assert(std::is_trivially_copyable_v<TensorView>);
+static_assert(std::is_trivially_copyable_v<Tensor>);
+
+// A 2 by 3 tensor counting 0 to 5, which makes wrong offsets easy to spot.
+Tensor Counting2x3(Arena& arena) {
+  const std::vector<float> values{0, 1, 2, 3, 4, 5};
+  return Tensor::FromValues<float>(arena, *Shape::Make({2, 3}), values).value();
+}
+
+}  // namespace
+
+TEST(Tensor, DefaultIsEmpty) {
+  const Tensor tensor;
+  EXPECT_EQ(tensor.element_count(), 0U);
+  EXPECT_EQ(tensor.byte_size(), 0U);
+  EXPECT_EQ(tensor.dtype(), DType::kF32);
+  EXPECT_EQ(tensor.ToString(), "f32[0]");
+}
+
+TEST(Tensor, UninitializedHasTheRightShape) {
+  Arena arena;
+  const auto tensor = Tensor::Uninitialized(arena, DType::kI32, *Shape::Make({2, 5}));
+  ASSERT_TRUE(tensor.ok());
+  EXPECT_EQ(tensor->dtype(), DType::kI32);
+  EXPECT_EQ(tensor->element_count(), 10U);
+  EXPECT_EQ(tensor->byte_size(), 40U);
+  EXPECT_EQ(tensor->rank(), 2U);
+  EXPECT_EQ(tensor->dim(1), 5U);
+}
+
+TEST(Tensor, MemoryIsCacheLineAligned) {
+  Arena arena;
+  for (int i = 0; i < 5; ++i) {
+    const auto tensor = Tensor::Uninitialized(arena, DType::kI8, *Shape::Make({3}));
+    ASSERT_TRUE(tensor.ok());
+    EXPECT_EQ(reinterpret_cast<std::uintptr_t>(tensor->raw_data()) % 64, 0U);
+  }
+}
+
+TEST(Tensor, ZerosIsAllZero) {
+  Arena arena;
+  // Dirty the memory first, so a zero below cannot be luck.
+  const Arena::Mark mark = arena.mark();
+  const auto dirty = arena.Allocate(1024);
+  ASSERT_TRUE(dirty.ok());
+  std::fill_n(*dirty, 1024, std::byte{0xFF});
+  arena.Rewind(mark);
+
+  const auto tensor = Tensor::Zeros(arena, DType::kF32, *Shape::Make({16}));
+  ASSERT_TRUE(tensor.ok());
+  for (std::size_t i = 0; i < 16; ++i) EXPECT_EQ(tensor->at<float>(i), 0.0F);
+}
+
+TEST(Tensor, StridesAreRowByRow) {
+  Arena arena;
+  const auto tensor = Tensor::Uninitialized(arena, DType::kF32, *Shape::Make({2, 3, 4}));
+  ASSERT_TRUE(tensor.ok());
+  EXPECT_EQ(tensor->stride(0), 12U);
+  EXPECT_EQ(tensor->stride(1), 4U);
+  EXPECT_EQ(tensor->stride(2), 1U);
+}
+
+TEST(Tensor, AtFollowsTheStrides) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  EXPECT_EQ(tensor.at<float>(0, 0), 0.0F);
+  EXPECT_EQ(tensor.at<float>(0, 2), 2.0F);
+  EXPECT_EQ(tensor.at<float>(1, 0), 3.0F);
+  EXPECT_EQ(tensor.at<float>(1, 2), 5.0F);
+}
+
+TEST(Tensor, AtCanWrite) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  tensor.at<float>(1, 1) = 42.0F;
+  EXPECT_EQ(tensor.data<float>()[4], 42.0F);
+}
+
+TEST(Tensor, ScalarHasOneElement) {
+  Arena arena;
+  const std::array<float, 1> value{7.0F};
+  const auto tensor = Tensor::FromValues<float>(arena, Shape{}, value);
+  ASSERT_TRUE(tensor.ok());
+  EXPECT_EQ(tensor->rank(), 0U);
+  EXPECT_EQ(tensor->element_count(), 1U);
+  EXPECT_EQ(tensor->at<float>(), 7.0F);
+}
+
+TEST(Tensor, EmptyTensorWorksAndGetsAPointer) {
+  Arena arena;
+  const auto tensor = Tensor::Zeros(arena, DType::kF32, *Shape::Make({0, 8}));
+  ASSERT_TRUE(tensor.ok());
+  EXPECT_EQ(tensor->byte_size(), 0U);
+  EXPECT_EQ(tensor->stride(0), 8U);
+}
+
+TEST(Tensor, FromValuesRejectsTheWrongCount) {
+  Arena arena;
+  const std::vector<float> values{1, 2, 3};
+  const auto tensor = Tensor::FromValues<float>(arena, *Shape::Make({2, 2}), values);
+  ASSERT_FALSE(tensor.ok());
+  EXPECT_EQ(tensor.status().code(), ember::StatusCode::kInvalidArgument);
+}
+
+TEST(Tensor, ReportsWhenTheArenaIsFull) {
+  Arena::Options options;
+  options.max_bytes = 1024;
+  Arena arena(options);
+  const auto tensor = Tensor::Zeros(arena, DType::kF32, *Shape::Make({1024}));
+  ASSERT_FALSE(tensor.ok());
+  EXPECT_EQ(tensor.status().code(), ember::StatusCode::kOutOfMemory);
+}
+
+TEST(Tensor, TheLargestShapeFailsCleanly) {
+  // element_count * 8 still fits in a size_t, so the arena gets an honest request it can refuse.
+  Arena arena;
+  const auto tensor =
+      Tensor::Uninitialized(arena, DType::kF32, *Shape::Make({Shape::kMaxElements}));
+  ASSERT_FALSE(tensor.ok());
+  EXPECT_EQ(tensor.status().code(), ember::StatusCode::kOutOfMemory);
+}
+
+TEST(Tensor, WrapsOutsideMemoryWithoutCopying) {
+  std::array<float, 4> outside{1, 2, 3, 4};
+  const auto tensor = Tensor::Wrap(outside.data(), DType::kF32, *Shape::Make({2, 2}));
+  ASSERT_TRUE(tensor.ok());
+  tensor->at<float>(1, 1) = 9.0F;
+  EXPECT_EQ(outside[3], 9.0F);
+}
+
+TEST(TensorView, WrapsReadOnlyMemory) {
+  static constexpr std::array<std::int32_t, 3> kTokens{10, 20, 30};
+  const auto view = TensorView::Wrap(kTokens.data(), DType::kI32, *Shape::Make({3}));
+  ASSERT_TRUE(view.ok());
+  EXPECT_EQ(view->at<std::int32_t>(2), 30);
+}
+
+TEST(TensorView, WrapRejectsNullWhenThereAreElements) {
+  const auto view = TensorView::Wrap(nullptr, DType::kF32, *Shape::Make({2}));
+  ASSERT_FALSE(view.ok());
+  EXPECT_EQ(view.status().code(), ember::StatusCode::kInvalidArgument);
+}
+
+TEST(TensorView, WrapAllowsNullWhenThereAreNoElements) {
+  EXPECT_TRUE(TensorView::Wrap(nullptr, DType::kF32, *Shape::Make({0})).ok());
+}
+
+TEST(TensorView, WrapRejectsMisalignedPointers) {
+  alignas(4) std::array<std::byte, 16> bytes{};
+  const auto misaligned = TensorView::Wrap(bytes.data() + 1, DType::kF32, *Shape::Make({2}));
+  ASSERT_FALSE(misaligned.ok());
+  EXPECT_EQ(misaligned.status().code(), ember::StatusCode::kInvalidArgument);
+  // The same pointer is fine for one byte elements.
+  EXPECT_TRUE(TensorView::Wrap(bytes.data() + 1, DType::kI8, *Shape::Make({2})).ok());
+}
+
+TEST(TensorView, ATensorConvertsToAView) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  const TensorView view = tensor;
+  EXPECT_EQ(view.at<float>(1, 2), 5.0F);
+  EXPECT_EQ(view.shape(), tensor.shape());
+}
+
+TEST(TensorView, CopiesLookAtTheSameNumbers) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  const Tensor copy = tensor;  // NOLINT: the copy is what is being tested.
+  copy.at<float>(0, 0) = 100.0F;
+  EXPECT_EQ(tensor.at<float>(0, 0), 100.0F);
+}
+
+TEST(TensorView, ToStringShowsTypeAndShape) {
+  Arena arena;
+  EXPECT_EQ(Counting2x3(arena).ToString(), "f32[2, 3]");
+}
+
+TEST(TensorDeathTest, ReadingAsTheWrongTypeIsABug) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  EXPECT_DEATH((void)tensor.data<std::int32_t>(), "wrong element type");
+}
+
+TEST(TensorDeathTest, AskingForAStridePastTheRankIsABug) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  EXPECT_DEATH((void)tensor.stride(2), "past the end of a tensor");
+}
+
+#ifndef NDEBUG
+TEST(TensorDeathTest, OutOfBoundsIndexStopsInDebugBuilds) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  EXPECT_DEATH((void)tensor.at<float>(2, 0), "out of bounds");
+  EXPECT_DEATH((void)tensor.at<float>(0, 3), "out of bounds");
+  EXPECT_DEATH((void)tensor.at<float>(-1, 0), "out of bounds");
+}
+
+TEST(TensorDeathTest, WrongNumberOfIndicesStopsInDebugBuilds) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  EXPECT_DEATH((void)tensor.at<float>(0), "wrong number of indices");
+}
+
+TEST(TensorDeathTest, AtWithTheWrongTypeStopsInDebugBuilds) {
+  Arena arena;
+  const Tensor tensor = Counting2x3(arena);
+  EXPECT_DEATH((void)tensor.at<std::int32_t>(0, 0), "wrong element type");
+}
+#endif
