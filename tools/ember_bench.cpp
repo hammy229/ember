@@ -133,12 +133,20 @@ int main(int argc, char** argv) {
       },
       repeats, 2);
 
-  const double allocations = static_cast<double>(kRounds * kBlocksPerRound);
-  const double arena_ns = arena_timing.median_ms * 1e6 / allocations;
-  const double system_ns = system_timing.median_ms * 1e6 / allocations;
   Print("arena, mixed block sizes", arena_timing);
   Print("system allocator, mixed block sizes", system_timing);
-  std::cout << std::setprecision(1) << "per allocation and free: arena " << arena_ns
-            << " ns, system " << system_ns << " ns, ratio " << system_ns / arena_ns << "\n";
+
+  // Other programs can only slow a run down, so the fastest run is the steadiest number on a busy
+  // machine, and the median shows what a typical run got.
+  const double allocations = static_cast<double>(kRounds * kBlocksPerRound);
+  const auto print_per_allocation = [&](const char* name, double arena_ms, double system_ms) {
+    const double arena_ns = arena_ms * 1e6 / allocations;
+    const double system_ns = system_ms * 1e6 / allocations;
+    std::cout << std::setprecision(1) << "per allocation and free, " << name << ": arena "
+              << arena_ns << " ns, system " << system_ns << " ns, ratio " << system_ns / arena_ns
+              << "\n";
+  };
+  print_per_allocation("fastest run", arena_timing.min_ms, system_timing.min_ms);
+  print_per_allocation("median run", arena_timing.median_ms, system_timing.median_ms);
   return 0;
 }
