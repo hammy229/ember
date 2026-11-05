@@ -114,8 +114,8 @@ TEST(Arena, TracksUsedAndPeakBytes) {
   ASSERT_TRUE(arena.Allocate(100, 1).ok());
   EXPECT_EQ(arena.used_bytes(), 100U);
   ASSERT_TRUE(arena.Allocate(28, 1).ok());
-  EXPECT_EQ(arena.used_bytes(), 128U);
-  EXPECT_EQ(arena.peak_bytes(), 128U);
+  EXPECT_EQ(arena.used_bytes(), 128U + Arena::kRedzoneBytes);
+  EXPECT_EQ(arena.peak_bytes(), 128U + Arena::kRedzoneBytes);
 }
 
 TEST(Arena, UsedBytesCountsAlignmentPadding) {
@@ -305,6 +305,75 @@ TEST(ArenaDeathTest, RewindingForwardIsABug) {
   arena.Reset();
   EXPECT_DEATH(arena.Rewind(later), "ahead of it");
 }
+
+#if EMBER_ASAN
+namespace {
+
+// volatile so the compiler cannot remove the read this test exists to make.
+void ReadOneByte(const std::byte* pointer) {
+  const volatile std::byte value = *pointer;
+  (void)value;
+}
+
+}  // namespace
+
+TEST(ArenaSanitizerDeathTest, ReadingAfterARewindIsCaught) {
+  Arena arena;
+  const Arena::Mark mark = arena.mark();
+  const auto memory = arena.Allocate(64);
+  ASSERT_TRUE(memory.ok());
+  ReadOneByte(*memory);  // Fine while it is alive.
+  arena.Rewind(mark);
+  EXPECT_DEATH(ReadOneByte(*memory), "use-after-poison");
+}
+
+TEST(ArenaSanitizerDeathTest, ReadingAfterAScopeEndsIsCaught) {
+  Arena arena;
+  const std::byte* dangling = nullptr;
+  {
+    const ember::ArenaScope scope(arena);
+    const auto memory = arena.Allocate(64);
+    ASSERT_TRUE(memory.ok());
+    dangling = *memory;
+  }
+  EXPECT_DEATH(ReadOneByte(dangling), "use-after-poison");
+}
+
+TEST(ArenaSanitizerDeathTest, RunningOffTheEndOfABlockIsCaught) {
+  Arena arena;
+  const auto first = arena.Allocate(64);
+  ASSERT_TRUE(first.ok());
+  ASSERT_TRUE(arena.Allocate(64).ok());
+  ReadOneByte(*first + 63);
+  EXPECT_DEATH(ReadOneByte(*first + 64), "use-after-poison");
+}
+
+TEST(ArenaSanitizerDeathTest, RunningOffAnUnevenBlockIsCaught) {
+  Arena arena;
+  const auto block = arena.Allocate(13);
+  ASSERT_TRUE(block.ok());
+  ReadOneByte(*block + 12);
+  EXPECT_DEATH(ReadOneByte(*block + 13), "use-after-poison");
+}
+
+TEST(ArenaSanitizerDeathTest, MemoryNeverHandedOutIsCaught) {
+  Arena arena;
+  const auto block = arena.Allocate(64);
+  ASSERT_TRUE(block.ok());
+  EXPECT_DEATH(ReadOneByte(*block + 4096), "use-after-poison");
+}
+
+TEST(ArenaSanitizer, ReusedMemoryWorksAgainAfterARewind) {
+  Arena arena;
+  const Arena::Mark mark = arena.mark();
+  ASSERT_TRUE(arena.Allocate(64).ok());
+  arena.Rewind(mark);
+  const auto reused = arena.Allocate(64);
+  ASSERT_TRUE(reused.ok());
+  std::memset(*reused, 1, 64);
+  EXPECT_EQ((*reused)[63], std::byte{1});
+}
+#endif  // EMBER_ASAN
 
 TEST(ArenaDeathTest, ZeroSizedChunksAreABug) {
   EXPECT_DEATH(Arena{SmallChunks(0)}, "at least one byte");

@@ -8,14 +8,12 @@
 #include <limits>
 #include <utility>
 
+#include "ember/internal/asan.h"
+
 // AddressSanitizer treats an impossible allocation as fatal by default. Tests here need to see the
 // same failure a real out of memory gives, so ask it to return null instead.
-#if defined(__SANITIZE_ADDRESS__)
+#if EMBER_ASAN
 extern "C" const char* __asan_default_options() { return "allocator_may_return_null=1"; }
-#elif defined(__has_feature)
-#if __has_feature(address_sanitizer)
-extern "C" const char* __asan_default_options() { return "allocator_may_return_null=1"; }
-#endif
 #endif
 
 namespace {

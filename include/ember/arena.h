@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "ember/aligned_buffer.h"
+#include "ember/internal/asan.h"
 #include "ember/status_or.h"
 
 namespace ember {
@@ -25,6 +26,9 @@ class Arena {
   // A larger alignment than a page is a bug in the caller, not a real need.
   static constexpr std::size_t kMaxAlignment = 4096;
   static constexpr std::size_t kDefaultChunkBytes = std::size_t{1} << 20;
+  // A gap between allocations in sanitizer builds, so writing past the end of a tensor lands on
+  // poisoned memory and not silently on the next tensor. Normal builds waste nothing.
+  static constexpr std::size_t kRedzoneBytes = EMBER_ASAN ? 32 : 0;
 
   struct Options {
     // How much to ask the system for at a time. Bigger requests get a chunk of their own size.
@@ -43,7 +47,7 @@ class Arena {
   Arena& operator=(const Arena&) = delete;
   Arena(Arena&&) = delete;
   Arena& operator=(Arena&&) = delete;
-  ~Arena() = default;
+  ~Arena();
 
   // The memory is not zeroed. Asking for zero bytes gives a valid, aligned pointer that must not be
   // read or written. Fails if alignment is not a power of two up to kMaxAlignment, or if the memory
