@@ -190,6 +190,122 @@ TEST(Arena, AFailedAllocationLeavesTheArenaUsable) {
   EXPECT_TRUE(arena.Allocate(100).ok());
 }
 
+TEST(Arena, RewindGivesTheSameMemoryBack) {
+  Arena arena;
+  ASSERT_TRUE(arena.Allocate(100).ok());
+  const Arena::Mark mark = arena.mark();
+  const std::size_t used = arena.used_bytes();
+  const auto first = arena.Allocate(100);
+  ASSERT_TRUE(first.ok());
+
+  arena.Rewind(mark);
+  EXPECT_EQ(arena.used_bytes(), used);
+
+  const auto again = arena.Allocate(100);
+  ASSERT_TRUE(again.ok());
+  EXPECT_EQ(*again, *first);
+}
+
+TEST(Arena, MemoryBeforeTheMarkSurvivesARewind) {
+  Arena arena;
+  const auto kept = arena.Allocate(64);
+  ASSERT_TRUE(kept.ok());
+  std::memset(*kept, 0x11, 64);
+
+  const Arena::Mark mark = arena.mark();
+  const auto scratch = arena.Allocate(64);
+  ASSERT_TRUE(scratch.ok());
+  std::memset(*scratch, 0x22, 64);
+  arena.Rewind(mark);
+
+  const auto reused = arena.Allocate(64);
+  ASSERT_TRUE(reused.ok());
+  std::memset(*reused, 0x33, 64);
+  EXPECT_EQ((*kept)[63], std::byte{0x11});
+}
+
+TEST(Arena, RewindAcrossChunksReusesThemWithoutAskingForMore) {
+  Arena arena(SmallChunks(256));
+  const Arena::Mark start = arena.mark();
+  for (int i = 0; i < 20; ++i) ASSERT_TRUE(arena.Allocate(128).ok());
+  const std::size_t chunks = arena.chunk_count();
+  const std::size_t capacity = arena.capacity_bytes();
+  ASSERT_GT(chunks, 1U);
+
+  // Doing the same work again must not hold any more memory. This is what makes generating many
+  // tokens in a row cost a fixed amount.
+  for (int round = 0; round < 5; ++round) {
+    arena.Rewind(start);
+    for (int i = 0; i < 20; ++i) ASSERT_TRUE(arena.Allocate(128).ok());
+  }
+  EXPECT_EQ(arena.chunk_count(), chunks);
+  EXPECT_EQ(arena.capacity_bytes(), capacity);
+}
+
+TEST(Arena, ResetKeepsChunksAndPeak) {
+  Arena arena;
+  ASSERT_TRUE(arena.Allocate(1000, 1).ok());
+  const std::size_t capacity = arena.capacity_bytes();
+  arena.Reset();
+  EXPECT_EQ(arena.used_bytes(), 0U);
+  EXPECT_EQ(arena.peak_bytes(), 1000U);
+  EXPECT_EQ(arena.capacity_bytes(), capacity);
+}
+
+TEST(Arena, ResettingAnEmptyArenaIsFine) {
+  Arena arena;
+  arena.Reset();
+  EXPECT_TRUE(arena.Allocate(8).ok());
+}
+
+TEST(Arena, AFailedRequestDoesNotSkipReusableChunks) {
+  Arena::Options options;
+  options.chunk_bytes = 1024;
+  options.max_bytes = 4096;
+  Arena arena(options);
+  const Arena::Mark start = arena.mark();
+  for (int i = 0; i < 3; ++i) ASSERT_TRUE(arena.Allocate(900).ok());
+  const std::size_t chunks = arena.chunk_count();
+  arena.Rewind(start);
+
+  // Too big for every chunk and over the limit. It must fail, and the chunks stay available.
+  ASSERT_FALSE(arena.Allocate(1 << 20).ok());
+  for (int i = 0; i < 3; ++i) ASSERT_TRUE(arena.Allocate(900).ok());
+  EXPECT_EQ(arena.chunk_count(), chunks);
+}
+
+TEST(ArenaScope, RewindsWhenTheScopeEnds) {
+  Arena arena;
+  ASSERT_TRUE(arena.Allocate(100).ok());
+  const std::size_t used = arena.used_bytes();
+  {
+    const ember::ArenaScope scope(arena);
+    ASSERT_TRUE(arena.Allocate(1000).ok());
+    EXPECT_GT(arena.used_bytes(), used);
+  }
+  EXPECT_EQ(arena.used_bytes(), used);
+}
+
+TEST(ArenaScope, NestsNewestFirst) {
+  Arena arena;
+  const ember::ArenaScope outer(arena);
+  ASSERT_TRUE(arena.Allocate(100).ok());
+  const std::size_t after_outer = arena.used_bytes();
+  {
+    const ember::ArenaScope inner(arena);
+    ASSERT_TRUE(arena.Allocate(100).ok());
+  }
+  EXPECT_EQ(arena.used_bytes(), after_outer);
+}
+
+TEST(ArenaDeathTest, RewindingForwardIsABug) {
+  Arena arena;
+  ASSERT_TRUE(arena.Allocate(100).ok());
+  const Arena::Mark later = arena.mark();
+  arena.Reset();
+  EXPECT_DEATH(arena.Rewind(later), "ahead of it");
+}
+
 TEST(ArenaDeathTest, ZeroSizedChunksAreABug) {
   EXPECT_DEATH(Arena{SmallChunks(0)}, "at least one byte");
 }

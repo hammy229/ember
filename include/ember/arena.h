@@ -50,6 +50,24 @@ class Arena {
   // limit or the system says no.
   StatusOr<std::byte*> Allocate(std::size_t bytes, std::size_t alignment = kDefaultAlignment);
 
+  // A saved position in the arena.
+  struct Mark {
+    std::size_t chunk_index = 0;
+    std::size_t offset = 0;
+    std::size_t used_bytes = 0;
+  };
+
+  Mark mark() const { return Mark{chunk_index_, offset_, used_bytes_}; }
+
+  // Frees everything allocated since the mark and keeps the chunks to reuse. Pointers handed out
+  // after the mark are dead. Marks must be undone newest first: rewinding to a position ahead of
+  // the current one is a bug and aborts.
+  void Rewind(const Mark& mark);
+
+  // Frees everything and keeps the chunks. peak_bytes() survives, because its job is to report
+  // the most this arena ever needed.
+  void Reset();
+
   // Bytes handed out since the last reset, counting alignment padding.
   std::size_t used_bytes() const { return used_bytes_; }
   // The most used_bytes() has ever been. This tells you how to size the arena for a workload.
@@ -72,6 +90,22 @@ class Arena {
   std::size_t used_bytes_ = 0;
   std::size_t peak_bytes_ = 0;
   std::size_t capacity_bytes_ = 0;
+};
+
+// Rewinds the arena when the scope ends, so scratch tensors in a function free themselves.
+class ArenaScope {
+ public:
+  [[nodiscard]] explicit ArenaScope(Arena& arena) : arena_(arena), mark_(arena.mark()) {}
+  ~ArenaScope() { arena_.Rewind(mark_); }
+
+  ArenaScope(const ArenaScope&) = delete;
+  ArenaScope& operator=(const ArenaScope&) = delete;
+  ArenaScope(ArenaScope&&) = delete;
+  ArenaScope& operator=(ArenaScope&&) = delete;
+
+ private:
+  Arena& arena_;
+  Arena::Mark mark_;
 };
 
 }  // namespace ember

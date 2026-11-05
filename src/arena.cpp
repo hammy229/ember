@@ -63,10 +63,35 @@ StatusOr<std::byte*> Arena::Allocate(std::size_t bytes, std::size_t alignment) {
   }
   if (std::byte* const memory = TryBump(bytes, alignment)) return memory;
 
-  EMBER_RETURN_IF_ERROR(Grow(bytes, alignment));
+  // After a rewind, later chunks are free again. Use them before asking the system for more.
+  const std::size_t saved_index = chunk_index_;
+  const std::size_t saved_offset = offset_;
+  while (chunk_index_ + 1 < chunks_.size()) {
+    ++chunk_index_;
+    offset_ = 0;
+    if (std::byte* const memory = TryBump(bytes, alignment)) return memory;
+  }
+
+  if (Status grown = Grow(bytes, alignment); !grown.ok()) {
+    // Walking the chunks must not cost anything if the request fails in the end.
+    chunk_index_ = saved_index;
+    offset_ = saved_offset;
+    return grown;
+  }
   std::byte* const memory = TryBump(bytes, alignment);
   EMBER_CHECK(memory != nullptr, "a new arena chunk must fit the request it was sized for");
   return memory;
 }
+
+void Arena::Rewind(const Mark& mark) {
+  const bool is_behind_or_here = mark.chunk_index < chunk_index_ ||
+                                 (mark.chunk_index == chunk_index_ && mark.offset <= offset_);
+  EMBER_CHECK(is_behind_or_here, "rewound an arena to a mark that is ahead of it");
+  chunk_index_ = mark.chunk_index;
+  offset_ = mark.offset;
+  used_bytes_ = mark.used_bytes;
+}
+
+void Arena::Reset() { Rewind(Mark{}); }
 
 }  // namespace ember
