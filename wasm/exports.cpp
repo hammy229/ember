@@ -58,6 +58,17 @@ int RunMemorySelfCheck() {
     arena.Rewind(mark);
   }
   if (arena.capacity_bytes() != capacity) return 13;
+
+  // Sizes near the top of a 32-bit size_t, where padding could wrap around. Nothing here limits the
+  // arena, so these have to be stopped by the overflow checks themselves.
+  Arena unlimited;
+  if (unlimited.Allocate(0xFFFFFFFFU).ok()) return 14;
+  if (unlimited.Allocate(0x80000000U).ok()) return 15;
+  if (unlimited.used_bytes() != 0) return 16;
+
+  // A large count under the limit of about 2^29 still works, and one over it does not.
+  if (!Shape::Make({std::size_t{1} << 14, std::size_t{1} << 14}).ok()) return 17;
+  if (Shape::Make({std::size_t{1} << 15, std::size_t{1} << 15}).ok()) return 18;
   return 0;
 }
 
