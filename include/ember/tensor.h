@@ -150,8 +150,11 @@ class Tensor : public TensorView {
   StatusOr<Tensor> Reshape(Shape shape) const;
 
   // Copies the numbers of a tensor with the same type and shape into this one, following both sets
-  // of strides. Fails if the two overlap in memory, because transposing a matrix onto itself this
-  // way would overwrite numbers before reading them and silently give the wrong answer.
+  // of strides. Fails if the memory ranges the two span intersect, because transposing a matrix
+  // onto itself this way would overwrite numbers before reading them and silently give the wrong
+  // answer. The check looks at ranges, not elements, so it also refuses two columns of one matrix,
+  // which share no element. Being too careful costs a copy through a temporary. Being wrong costs a
+  // silent bug.
   Status CopyFrom(const TensorView& source) const;
 
   // A new contiguous tensor holding a copy of the numbers. This is how to reshape a tensor that is

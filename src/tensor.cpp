@@ -222,7 +222,7 @@ Status Tensor::CopyFrom(const TensorView& source) const {
   }
   if (element_count() == 0) return Status::Ok();
   if (Overlaps(RangeOf(source), RangeOf(*this))) {
-    return Status::InvalidArgument("cannot copy between tensors that overlap in memory");
+    return Status::InvalidArgument("cannot copy between tensors whose memory ranges intersect");
   }
   if (source.is_contiguous() && is_contiguous()) {
     std::memcpy(raw_data(), source.raw_data(), byte_size());

@@ -496,6 +496,21 @@ TEST(TensorCopy, RefusesSlicesThatOverlapByOneElement) {
   EXPECT_FALSE(line.Slice(0, 0, 2)->CopyFrom(*line.Slice(0, 1, 2)).ok());
 }
 
+TEST(TensorCopy, RefusesColumnsOfOneMatrixEvenThoughTheyShareNoElement) {
+  // The ranges intersect though the elements do not. This pins down the documented limit, and the
+  // way around it is a copy through a temporary.
+  Arena arena;
+  const Tensor matrix = *Tensor::Zeros(arena, DType::kF32, *Shape::Make({2, 4}));
+  const auto left = matrix.Slice(1, 0, 2);
+  const auto right = matrix.Slice(1, 2, 2);
+  ASSERT_TRUE(left.ok() && right.ok());
+  ASSERT_FALSE(left->CopyFrom(*right).ok());
+
+  const auto temporary = Tensor::CopyOf(arena, *right);
+  ASSERT_TRUE(temporary.ok());
+  EXPECT_TRUE(left->CopyFrom(*temporary).ok());
+}
+
 TEST(TensorCopy, CopyOfMakesATransposeContiguous) {
   Arena arena;
   const Tensor source = Counting2x3(arena);
