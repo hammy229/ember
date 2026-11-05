@@ -95,6 +95,17 @@ StatusOr<TensorView> TensorView::Wrap(const void* data, DType dtype, Shape shape
   return TensorView(static_cast<const std::byte*>(data), dtype, shape, RowByRowStrides(shape));
 }
 
+StatusOr<TensorView> TensorView::Wrap(std::span<const std::byte> bytes, DType dtype, Shape shape) {
+  // Shape::kMaxElements is what guarantees this multiplication cannot overflow.
+  const std::size_t needed = shape.element_count() * SizeOf(dtype);
+  if (needed > bytes.size()) {
+    return Status::InvalidFormat(std::string(Name(dtype)) + shape.ToString() + " needs " +
+                                 std::to_string(needed) + " bytes, but there are " +
+                                 std::to_string(bytes.size()));
+  }
+  return Wrap(static_cast<const void*>(bytes.data()), dtype, shape);
+}
+
 std::size_t TensorView::stride(std::size_t index) const {
   EMBER_CHECK(index < shape_.rank(), "asked for a stride past the end of a tensor");
   return strides_[index];

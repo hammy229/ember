@@ -30,6 +30,11 @@ class TensorView {
   // is undefined behavior and the pointer may come from a file.
   static StatusOr<TensorView> Wrap(const void* data, DType dtype, Shape shape);
 
+  // The same, for bytes whose size is known, and it also fails if the shape needs more bytes than
+  // there are. Use this one for anything read from a file, because a corrupt file can claim a shape
+  // far larger than the file itself.
+  static StatusOr<TensorView> Wrap(std::span<const std::byte> bytes, DType dtype, Shape shape);
+
   DType dtype() const { return dtype_; }
   const Shape& shape() const { return shape_; }
   std::size_t rank() const { return shape_.rank(); }

@@ -195,6 +195,31 @@ TEST(TensorView, WrapRejectsAnUnknownElementType) {
   EXPECT_FALSE(Tensor::Zeros(arena, unknown, *Shape::Make({2})).ok());
 }
 
+TEST(TensorView, WrapWithASizeAcceptsAnExactFit) {
+  alignas(8) std::array<std::byte, 24> bytes{};
+  const auto view =
+      TensorView::Wrap(std::span<const std::byte>(bytes), DType::kF32, *Shape::Make({2, 3}));
+  ASSERT_TRUE(view.ok());
+  EXPECT_EQ(view->byte_size(), 24U);
+}
+
+TEST(TensorView, WrapWithASizeRejectsAShapeLargerThanTheBytes) {
+  // A file that claims more numbers than it holds. Without this check the claim would only show up
+  // later, as a read past the end of the mapping.
+  alignas(8) std::array<std::byte, 24> bytes{};
+  const auto view =
+      TensorView::Wrap(std::span<const std::byte>(bytes), DType::kF32, *Shape::Make({2, 4}));
+  ASSERT_FALSE(view.ok());
+  EXPECT_EQ(view.status().code(), ember::StatusCode::kInvalidFormat);
+}
+
+TEST(TensorView, WrapWithASizeRejectsTheLargestShape) {
+  alignas(8) std::array<std::byte, 8> bytes{};
+  EXPECT_FALSE(TensorView::Wrap(std::span<const std::byte>(bytes), DType::kF32,
+                                *Shape::Make({Shape::kMaxElements}))
+                   .ok());
+}
+
 TEST(TensorView, ATensorConvertsToAView) {
   Arena arena;
   const Tensor tensor = Counting2x3(arena);
