@@ -17,4 +17,8 @@ const ember = await createEmber();
 const version = ember.UTF8ToString(ember._ember_version());
 
 assert.equal(version, expected);
+
+// Zero means every check passed. Anything else is the number of the check in wasm/exports.cpp.
+assert.equal(ember._ember_memory_self_check(), 0);
+
 console.log(`wasm smoke test passed: ember ${version}`);

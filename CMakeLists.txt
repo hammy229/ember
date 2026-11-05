@@ -45,7 +45,7 @@ if(EMSCRIPTEN)
     -sEXPORT_ES6=1
     -sENVIRONMENT=web,node
     -sALLOW_MEMORY_GROWTH=1
-    -sEXPORTED_FUNCTIONS=_ember_version
+    -sEXPORTED_FUNCTIONS=_ember_version,_ember_memory_self_check
     -sEXPORTED_RUNTIME_METHODS=UTF8ToString
     --no-entry)
   return()
