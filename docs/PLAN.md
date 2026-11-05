@@ -9,15 +9,15 @@ Ember is an LLM inference engine written from scratch in C++20, with no ML frame
 | Date | Goal | Status |
 |---|---|---|
 | Wed, Nov 4 | Repo, build presets, tests, CI, WebAssembly build, site skeleton | Done |
-| Thu, Nov 5 | Tensors and memory allocator | |
+| Thu, Nov 5 | Tensors and memory allocator | Done |
 | Fri, Nov 6 | Matrix operations, softmax, first benchmark | |
-| Sat, Nov 7 | Load model weights with memory mapping (15 MB tiny model) | |
+| Sat, Nov 7 | Load model weights with memory mapping (15 MB tiny model), fuzz the loader against corrupt files | |
 | Sun, Nov 8 | Attention and the full forward pass | |
-| Mon, Nov 9 | **Milestone 1: logits match Hugging Face** | |
+| Mon, Nov 9 | **Milestone 1: logits match Hugging Face**, checked in CI from a saved reference | |
 | Tue, Nov 10 | Tokenizer, sampling, KV cache, text generation | |
 | Wed, Nov 11 | **Milestone 2: text generation in the browser**, first private site | |
 | Thu, Nov 12 | Light day, MedData is due at 2pm CST. Catch-up only | |
-| Fri, Nov 13 | Run Qwen3 0.6B on the Mac, NEON SIMD with before-and-after benchmarks | |
+| Fri, Nov 13 | Run Qwen3 0.6B on the Mac, NEON SIMD with before-and-after benchmarks, same model against llama.cpp | |
 | Sat, Nov 14 | Multithreading, 8-bit quantization, quantization quality report | |
 | Sun, Nov 15 | Autograd and optimizer, with gradients checked numerically | |
 | Mon, Nov 16 | Train a tiny character-level transformer natively, final benchmarks | |
@@ -41,6 +41,19 @@ Optional: the mortality pipeline comparison against 0.804 AUC. It needs lab appr
 **Minimum to publish on Nov 19:** Milestones 1 and 2 plus a benchmark page.
 
 **If behind, drop in this order:** the attention maps and logit lens, then training in the browser (keep native training), then all training, then the quantization report. Never drop the browser demo.
+
+## What each kind of reader should find
+
+Ember is one deep project, not a pile of small ones. A reader should be able to check each claim without trusting the author.
+
+| Reader | What they look for | Where Ember shows it |
+|---|---|---|
+| Inference or ML systems | Modern C++, attention and KV cache, quantization, profiling, comparison to llama.cpp | The engine, the quantization report, benchmarks against llama.cpp |
+| Software engineering | Tests, sanitizers, CI, handling bad input, clear design decisions | Random and fuzz tests, sanitizer builds, `docs/memory.md` |
+| ML engineering | Getting the math right, proof the model is correct, training | Logits matching Hugging Face in CI, gradients checked numerically, attention maps |
+| AI engineering | Something people can use, with measured quality | The browser demo, the quantization report's quality numbers |
+
+**The llama.cpp comparison gets published even if Ember loses.** Nobody expects a two week engine to beat it. An honest table of how far behind it is, and why, is the point.
 
 ## Rules
 
