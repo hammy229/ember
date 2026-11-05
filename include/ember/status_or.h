@@ -36,14 +36,16 @@ class [[nodiscard]] StatusOr {
     EMBER_CHECK(ok(), "read the value of a failed StatusOr");
     return std::get<1>(state_);
   }
-  T&& value() && {
+  // By value on purpose. Returning a reference into a dying temporary would make
+  // `const auto& shape = *Shape::Make(...)` compile and then dangle.
+  T value() && {
     EMBER_CHECK(ok(), "read the value of a failed StatusOr");
     return std::get<1>(std::move(state_));
   }
 
   const T& operator*() const& { return value(); }
   T& operator*() & { return value(); }
-  T&& operator*() && { return std::move(*this).value(); }
+  T operator*() && { return std::move(*this).value(); }
   const T* operator->() const { return &value(); }
   T* operator->() { return &value(); }
 
@@ -70,7 +72,8 @@ class [[nodiscard]] StatusOr {
   target = std::move(temporary).value()
 
 // `EMBER_ASSIGN_OR_RETURN(const Shape shape, Shape::Make(dims));` declares and fills `shape`, or
-// returns the error from the current function.
+// returns the error from the current function. It expands to several statements, so use it as a
+// statement of its own, in braces if it follows an `if`, and at most once per line.
 #define EMBER_ASSIGN_OR_RETURN(target, expression)                                           \
   EMBER_INTERNAL_ASSIGN_OR_RETURN(EMBER_INTERNAL_CONCAT(ember_status_or_, __LINE__), target, \
                                   expression)

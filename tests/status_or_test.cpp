@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 namespace {
@@ -58,6 +59,16 @@ TEST(StatusOr, MovesOutTypesThatCannotBeCopied) {
   ember::StatusOr<std::unique_ptr<int>> s(std::make_unique<int>(7));
   const std::unique_ptr<int> taken = std::move(s).value();
   EXPECT_EQ(*taken, 7);
+}
+
+TEST(StatusOr, ValueOfATemporaryIsSafeToBindToAReference) {
+  // Lifetime extension only applies if this returns by value. ASan catches it if that ever changes.
+  const auto make = [] { return ember::StatusOr<std::string>(std::string(100, 'x')); };
+  const std::string& from_star = *make();
+  const std::string& from_value = make().value();
+  EXPECT_EQ(from_star.size(), 100U);
+  EXPECT_EQ(from_value.size(), 100U);
+  static_assert(std::is_same_v<decltype(*std::declval<ember::StatusOr<int>>()), int>);
 }
 
 TEST(StatusOr, AssignOrReturnPassesTheValueThrough) {
