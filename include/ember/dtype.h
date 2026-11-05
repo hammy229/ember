@@ -14,6 +14,7 @@ enum class DType : std::uint8_t {
   kI8,
 };
 
+// Zero for a value that is not a real DType, which can happen when one is read from a file.
 constexpr std::size_t SizeOf(DType dtype) {
   switch (dtype) {
     case DType::kF32:

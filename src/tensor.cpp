@@ -83,6 +83,8 @@ TensorView::TensorView()
       strides_(RowByRowStrides(shape_)) {}
 
 StatusOr<TensorView> TensorView::Wrap(const void* data, DType dtype, Shape shape) {
+  // The element type can come straight from a model file, so it may not be one we know.
+  if (SizeOf(dtype) == 0) return Status::InvalidFormat("unknown element type");
   if (data == nullptr && shape.element_count() > 0) {
     return Status::InvalidArgument("cannot wrap a null pointer as " + shape.ToString());
   }

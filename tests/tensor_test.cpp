@@ -183,6 +183,18 @@ TEST(TensorView, WrapRejectsMisalignedPointers) {
   EXPECT_TRUE(TensorView::Wrap(bytes.data() + 1, DType::kI8, *Shape::Make({2})).ok());
 }
 
+TEST(TensorView, WrapRejectsAnUnknownElementType) {
+  // This used to divide by zero, and the element type can come from a corrupt model file.
+  alignas(8) std::array<std::byte, 16> bytes{};
+  const auto unknown = static_cast<DType>(9);
+  const auto view = TensorView::Wrap(bytes.data(), unknown, *Shape::Make({2}));
+  ASSERT_FALSE(view.ok());
+  EXPECT_EQ(view.status().code(), ember::StatusCode::kInvalidFormat);
+
+  Arena arena;
+  EXPECT_FALSE(Tensor::Zeros(arena, unknown, *Shape::Make({2})).ok());
+}
+
 TEST(TensorView, ATensorConvertsToAView) {
   Arena arena;
   const Tensor tensor = Counting2x3(arena);
