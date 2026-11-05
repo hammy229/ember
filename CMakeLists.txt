@@ -27,6 +27,7 @@ configure_file(src/version.cpp.in generated/version.cpp @ONLY)
 add_library(ember STATIC
   ${CMAKE_CURRENT_BINARY_DIR}/generated/version.cpp
   src/aligned_buffer.cpp
+  src/arena.cpp
   src/check.cpp
   src/status.cpp)
 target_include_directories(ember PUBLIC include)
@@ -69,6 +70,7 @@ if(EMBER_BUILD_TESTS)
   enable_testing()
   add_executable(ember_tests
     tests/aligned_buffer_test.cpp
+    tests/arena_test.cpp
     tests/check_test.cpp
     tests/status_or_test.cpp
     tests/status_test.cpp
