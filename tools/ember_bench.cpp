@@ -1,6 +1,7 @@
 // Tiny benchmark harness. It times a placeholder workload (summing a float
 // array) and the arena against the system allocator. Real kernels get added
 // here as they exist. It prints only what it measures on this machine.
+#include <array>
 #include <charconv>
 #include <cstddef>
 #include <cstdlib>
@@ -85,43 +86,57 @@ int main(int argc, char** argv) {
   std::cout << std::fixed << std::setprecision(3);
   Print("sum of " + std::to_string(size) + " floats", s);
 
-  // Allocate the same batch of scratch blocks both ways. The arena has already been through one
-  // round, as it has after the first token of a generation, so this times reuse and not setup.
-  constexpr std::size_t kBlocks = 1000;
-  constexpr std::size_t kBlockBytes = 4096;
-  const std::string batch =
-      std::to_string(kBlocks) + " blocks of " + std::to_string(kBlockBytes) + " bytes";
+  // Allocate the same scratch blocks both ways, then free them all, like one forward pass does. The
+  // sizes are mixed because identical blocks are the system allocator's best case, and a real model
+  // does not ask for those. Rounds keep each timing far above the clock's resolution. The first
+  // runs are warmup, so the arena is timing reuse and not setup, as it is after the first generated
+  // token.
+  constexpr std::array<std::size_t, 6> kBlockBytes{64, 256, 1024, 4096, 16384, 65536};
+  constexpr std::size_t kBlocksPerRound = 1000;
+  constexpr std::size_t kRounds = 100;
+  const auto block_bytes = [&](std::size_t i) { return kBlockBytes[i % kBlockBytes.size()]; };
 
   ember::Arena arena;
   const ember::Arena::Mark start = arena.mark();
   const ember::TimingSummary arena_timing = ember::Repeat(
       [&] {
-        for (std::size_t i = 0; i < kBlocks; ++i) {
-          const auto block = arena.Allocate(kBlockBytes);
-          if (!block.ok()) std::abort();
-          // Touch each block so the work cannot be optimized away.
-          **block = std::byte{1};
-          g_byte_sink = **block;
+        for (std::size_t round = 0; round < kRounds; ++round) {
+          for (std::size_t i = 0; i < kBlocksPerRound; ++i) {
+            const auto block = arena.Allocate(block_bytes(i));
+            if (!block.ok()) std::abort();
+            // Touch each block so the work cannot be optimized away.
+            **block = std::byte{1};
+            g_byte_sink = **block;
+          }
+          arena.Rewind(start);
         }
-        arena.Rewind(start);
       },
       repeats, 2);
-  Print("arena, " + batch, arena_timing);
 
   std::vector<ember::AlignedBuffer> held;
-  held.reserve(kBlocks);
+  held.reserve(kBlocksPerRound);
   const ember::TimingSummary system_timing = ember::Repeat(
       [&] {
-        for (std::size_t i = 0; i < kBlocks; ++i) {
-          auto block = ember::AlignedBuffer::Allocate(kBlockBytes, ember::Arena::kDefaultAlignment);
-          if (!block.ok()) std::abort();
-          *block->data() = std::byte{1};
-          g_byte_sink = *block->data();
-          held.push_back(std::move(*block));
+        for (std::size_t round = 0; round < kRounds; ++round) {
+          for (std::size_t i = 0; i < kBlocksPerRound; ++i) {
+            auto block =
+                ember::AlignedBuffer::Allocate(block_bytes(i), ember::Arena::kDefaultAlignment);
+            if (!block.ok()) std::abort();
+            *block->data() = std::byte{1};
+            g_byte_sink = *block->data();
+            held.push_back(std::move(*block));
+          }
+          held.clear();
         }
-        held.clear();
       },
       repeats, 2);
-  Print("system allocator, " + batch, system_timing);
+
+  const double allocations = static_cast<double>(kRounds * kBlocksPerRound);
+  const double arena_ns = arena_timing.median_ms * 1e6 / allocations;
+  const double system_ns = system_timing.median_ms * 1e6 / allocations;
+  Print("arena, mixed block sizes", arena_timing);
+  Print("system allocator, mixed block sizes", system_timing);
+  std::cout << std::setprecision(1) << "per allocation and free: arena " << arena_ns
+            << " ns, system " << system_ns << " ns, ratio " << system_ns / arena_ns << "\n";
   return 0;
 }
