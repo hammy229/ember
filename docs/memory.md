@@ -21,14 +21,20 @@ One forward pass makes many tensors: attention scores, head outputs, activations
 
 ### Is it worth it?
 
-`ember_bench` allocates and frees the same 100,000 blocks of mixed sizes both ways. These are the medians of 100 runs from three separate runs of the program, on an Apple M4 with a release build:
+`ember_bench` allocates and frees the same 100,000 blocks of mixed sizes both ways. These are the fastest of 100 timed runs, from six runs of the program on an Apple M4 with a release build:
 
 | | Per allocation and free |
 |---|---|
-| Arena | 3.2 to 3.3 ns |
-| System allocator through `AlignedBuffer` | 34.6 to 34.9 ns |
+| Arena | 3.1 to 3.2 ns |
+| System allocator through `AlignedBuffer` | 33.3 to 34.4 ns |
 
-So the arena was about 10.7 times faster here. That is one machine and one allocation pattern, and it times the allocator alone. It says nothing yet about the speed of inference. Run it yourself with `ember_bench`.
+So the arena was 10.4 to 11.0 times faster here. Three limits on that number:
+
+- It moves when the machine is busy. With a load average of 20 on 10 cores, the median ratio ranged from about 7 to about 34, which is why the benchmark prints the fastest run as well. Other programs can only slow a run down, so the fastest run is the steadier number.
+- It is one machine and one allocation pattern. Another system allocator would give a different answer.
+- It times the allocator alone. It says nothing yet about the speed of inference, because the engine does not run a model yet.
+
+Run it yourself with `ember_bench`.
 
 ## Catching the bugs an arena creates
 
