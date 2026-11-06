@@ -29,6 +29,7 @@ add_library(ember STATIC
   src/aligned_buffer.cpp
   src/arena.cpp
   src/check.cpp
+  src/ops.cpp
   src/shape.cpp
   src/status.cpp
   src/tensor.cpp)
@@ -76,6 +77,7 @@ if(EMBER_BUILD_TESTS)
     tests/arena_test.cpp
     tests/check_test.cpp
     tests/dtype_test.cpp
+    tests/ops_test.cpp
     tests/shape_test.cpp
     tests/status_or_test.cpp
     tests/status_test.cpp
