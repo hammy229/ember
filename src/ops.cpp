@@ -22,6 +22,26 @@ Status RequireSameShape(const TensorView& a, const TensorView& b, std::string_vi
                                  " and " + b.ToString());
 }
 
+// True if both read and write the same numbers in the same order.
+bool SameLayout(const TensorView& a, const TensorView& b) {
+  if (a.raw_data() != b.raw_data() || !(a.shape() == b.shape())) return false;
+  for (std::size_t axis = 0; axis < a.rank(); ++axis) {
+    // A dimension of size 1 is never stepped along, so its stride does not matter.
+    if (a.dim(axis) > 1 && a.stride(axis) != b.stride(axis)) return false;
+  }
+  return true;
+}
+
+// For ops that read each input element once, right before writing the matching output element.
+// Writing exactly over an input is fine for those. Any other overlap would read numbers the op has
+// already overwritten and silently give the wrong answer.
+Status RequireExactlyOverOrApart(const TensorView& input, const TensorView& out,
+                                 std::string_view op) {
+  if (!MemoryRangesIntersect(input, out) || SameLayout(input, out)) return Status::Ok();
+  return Status::InvalidArgument(std::string(op) +
+                                 " cannot write to an output that partly overlaps its input");
+}
+
 // Runs op over matching elements of a and b and stores the results in out. The innermost dimension
 // gets its own loop, and when nothing has a stride there the compiler can use SIMD on it.
 template <typename Op>
@@ -56,6 +76,8 @@ Status Zip(const TensorView& a, const TensorView& b, const Tensor& out, std::str
   EMBER_RETURN_IF_ERROR(RequireF32(out, name));
   EMBER_RETURN_IF_ERROR(RequireSameShape(a, out, name));
   EMBER_RETURN_IF_ERROR(RequireSameShape(b, out, name));
+  EMBER_RETURN_IF_ERROR(RequireExactlyOverOrApart(a, out, name));
+  EMBER_RETURN_IF_ERROR(RequireExactlyOverOrApart(b, out, name));
   // An empty tensor can hold a null pointer, and moving a null pointer is undefined behavior.
   if (out.element_count() == 0) return Status::Ok();
   ZipAxis(a, b, out, 0, a.data<float>(), b.data<float>(), out.data<float>(), op);

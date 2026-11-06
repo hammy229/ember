@@ -98,6 +98,36 @@ TEST(Add, RefusesAnythingButFloats) {
   EXPECT_EQ(ember::Add(floats, floats, ints).code(), StatusCode::kInvalidArgument);
 }
 
+TEST(Add, CanWriteOverEitherInput) {
+  Arena arena;
+  const Tensor a = F32(arena, {2}, {1, 2});
+  const Tensor b = F32(arena, {2}, {10, 20});
+  ASSERT_TRUE(ember::Add(a, b, a).ok());
+  EXPECT_EQ(Values(arena, a), (std::vector<float>{11, 22}));
+  ASSERT_TRUE(ember::Add(a, b, b).ok());
+  EXPECT_EQ(Values(arena, b), (std::vector<float>{21, 42}));
+}
+
+TEST(Add, RefusesAnOutputThatPartlyOverlapsAnInput) {
+  Arena arena;
+  const Tensor line = F32(arena, {4}, {1, 2, 3, 4});
+  const Tensor a = *line.Slice(0, 0, 3);
+  const Tensor shifted = *line.Slice(0, 1, 3);
+  const Tensor other = F32(arena, {3}, {1, 1, 1});
+  // Going left to right this would read numbers it had already overwritten.
+  EXPECT_EQ(ember::Add(a, other, shifted).code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(Values(arena, line), (std::vector<float>{1, 2, 3, 4}));
+}
+
+TEST(Add, RefusesATransposeOfItselfAsTheOutput) {
+  Arena arena;
+  const Tensor square = F32(arena, {2, 2}, {1, 2, 3, 4});
+  const Tensor other = Output(arena, {2, 2});
+  // Same memory, same first element, different strides. It only looks like writing in place.
+  EXPECT_EQ(ember::Add(square, other, *square.Transpose(0, 1)).code(),
+            StatusCode::kInvalidArgument);
+}
+
 TEST(Multiply, MultipliesElementByElement) {
   Arena arena;
   const Tensor a = F32(arena, {3}, {1, 2, 3});
@@ -120,6 +150,14 @@ TEST(Scale, MultipliesEveryElementByOneNumber) {
   const Tensor out = Output(arena, {2, 2});
   ASSERT_TRUE(ember::Scale(a, 0.5F, out).ok());
   EXPECT_EQ(Values(arena, out), (std::vector<float>{0.5F, 1, 1.5F, 2}));
+}
+
+TEST(Scale, CanWriteOverItsInputAndFollowsStrides) {
+  Arena arena;
+  const Tensor matrix = F32(arena, {2, 2}, {1, 2, 3, 4});
+  const Tensor column = *matrix.Slice(1, 0, 1);
+  ASSERT_TRUE(ember::Scale(column, 10.0F, column).ok());
+  EXPECT_EQ(Values(arena, matrix), (std::vector<float>{10, 2, 30, 4}));
 }
 
 TEST(Scale, RefusesABadOutput) {
