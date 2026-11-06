@@ -66,7 +66,7 @@ At 0.57 billion elements a second over rows, `Softmax` is about 18 times slower 
 
 ## What the numbers do not say
 
-- They come from one machine and one compiler. The WebAssembly build has not been timed.
+- They come from one machine and one compiler, and they are native. The site times the WebAssembly build in the visitor's own browser, but no such run is saved here.
 - The inputs are random dense matrices, not real attention workloads. There is no model to run yet.
 - `add` at 64x64 and 256x256 fits in the fastest caches, so those rows do not predict speed on large tensors.
 - They set a starting point for NEON SIMD on Nov 13, not a claim about being fast. No comparison to any other engine exists yet.
