@@ -84,7 +84,65 @@ Status Zip(const TensorView& a, const TensorView& b, const Tensor& out, std::str
   return Status::Ok();
 }
 
+// row[j] += factor * values[j], along the strides. Nearly all the time in a matrix product goes
+// here. The strides are almost always 1, and then the compiler can use SIMD on the first loop.
+inline void AddScaled(float factor, const float* values, std::size_t values_step, float* row,
+                      std::size_t row_step, std::size_t size) {
+  if (values_step == 1 && row_step == 1) {
+    for (std::size_t j = 0; j < size; ++j) row[j] += factor * values[j];
+  } else {
+    for (std::size_t j = 0; j < size; ++j) row[j * row_step] += factor * values[j * values_step];
+  }
+}
+
+// Goes row, then middle, then column rather than the textbook row, column, middle. Both do the same
+// additions, but this order walks b and out through memory in a straight line instead of jumping a
+// whole row of b on every step, which is much kinder to the cache.
+void MatMul2D(const TensorView& a, const TensorView& b, const Tensor& out, std::size_t axis,
+              const float* from_a, const float* from_b, float* to) {
+  const std::size_t rows = a.dim(axis);
+  const std::size_t middle = a.dim(axis + 1);
+  const std::size_t columns = b.dim(axis + 1);
+  const std::size_t a_row_step = a.stride(axis);
+  const std::size_t a_middle_step = a.stride(axis + 1);
+  const std::size_t b_middle_step = b.stride(axis);
+  const std::size_t b_column_step = b.stride(axis + 1);
+  const std::size_t out_row_step = out.stride(axis);
+  const std::size_t out_column_step = out.stride(axis + 1);
+  for (std::size_t i = 0; i < rows; ++i) {
+    float* const row = to + i * out_row_step;
+    for (std::size_t j = 0; j < columns; ++j) row[j * out_column_step] = 0.0F;
+    const float* const a_row = from_a + i * a_row_step;
+    for (std::size_t k = 0; k < middle; ++k) {
+      AddScaled(a_row[k * a_middle_step], from_b + k * b_middle_step, b_column_step, row,
+                out_column_step, columns);
+    }
+  }
+}
+
+Status RequireMatMulShapes(const TensorView& a, const TensorView& b, const Tensor& out) {
+  const auto refuse = [&] {
+    return Status::InvalidArgument("MatMul cannot multiply " + a.ToString() + " by " +
+                                   b.ToString() + " into " + out.ToString());
+  };
+  if (a.rank() != 2 || b.rank() != 2 || out.rank() != 2) return refuse();
+  if (a.dim(1) != b.dim(0) || out.dim(0) != a.dim(0) || out.dim(1) != b.dim(1)) return refuse();
+  return Status::Ok();
+}
+
 }  // namespace
+
+Status MatMul(const TensorView& a, const TensorView& b, const Tensor& out) {
+  EMBER_RETURN_IF_ERROR(RequireF32(a, "MatMul"));
+  EMBER_RETURN_IF_ERROR(RequireF32(b, "MatMul"));
+  EMBER_RETURN_IF_ERROR(RequireF32(out, "MatMul"));
+  EMBER_RETURN_IF_ERROR(RequireMatMulShapes(a, b, out));
+  // An empty tensor can hold a null pointer, and moving a null pointer is undefined behavior.
+  if (out.element_count() == 0) return Status::Ok();
+  // With an empty middle dimension a and b can be null too, but the loops never read them then.
+  MatMul2D(a, b, out, 0, a.data<float>(), b.data<float>(), out.data<float>());
+  return Status::Ok();
+}
 
 Status Add(const TensorView& a, const TensorView& b, const Tensor& out) {
   return Zip(a, b, out, "Add", [](float x, float y) { return x + y; });

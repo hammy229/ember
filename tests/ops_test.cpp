@@ -167,4 +167,106 @@ TEST(Scale, RefusesABadOutput) {
   EXPECT_EQ(ember::Scale(a, 2.0F, wrong_shape).code(), StatusCode::kInvalidArgument);
 }
 
+TEST(MatMul, MultipliesTwoMatrices) {
+  Arena arena;
+  const Tensor a = F32(arena, {2, 3}, {1, 2, 3, 4, 5, 6});
+  const Tensor b = F32(arena, {3, 2}, {7, 8, 9, 10, 11, 12});
+  const Tensor out = Output(arena, {2, 2});
+  ASSERT_TRUE(ember::MatMul(a, b, out).ok());
+  EXPECT_EQ(Values(arena, out), (std::vector<float>{58, 64, 139, 154}));
+}
+
+TEST(MatMul, ReplacesWhatWasInTheOutput) {
+  Arena arena;
+  const Tensor a = F32(arena, {1, 1}, {2});
+  const Tensor b = F32(arena, {1, 1}, {3});
+  const Tensor out = F32(arena, {1, 1}, {100});
+  ASSERT_TRUE(ember::MatMul(a, b, out).ok());
+  EXPECT_EQ(out.at<float>(0, 0), 6.0F);
+}
+
+TEST(MatMul, TheIdentityChangesNothing) {
+  Arena arena;
+  const Tensor a = F32(arena, {2, 2}, {1, 2, 3, 4});
+  const Tensor identity = F32(arena, {2, 2}, {1, 0, 0, 1});
+  const Tensor out = Output(arena, {2, 2});
+  ASSERT_TRUE(ember::MatMul(a, identity, out).ok());
+  EXPECT_EQ(Values(arena, out), Values(arena, a));
+  ASSERT_TRUE(ember::MatMul(identity, a, out).ok());
+  EXPECT_EQ(Values(arena, out), Values(arena, a));
+}
+
+// Attention multiplies queries by transposed keys, so this is the case that matters most.
+TEST(MatMul, TakesATransposedMatrixOnEitherSide) {
+  Arena arena;
+  const Tensor a = F32(arena, {2, 3}, {1, 2, 3, 4, 5, 6});
+  const Tensor out = Output(arena, {2, 2});
+  ASSERT_TRUE(ember::MatMul(a, *a.Transpose(0, 1), out).ok());
+  EXPECT_EQ(Values(arena, out), (std::vector<float>{14, 32, 32, 77}));
+
+  const Tensor wide = Output(arena, {3, 3});
+  ASSERT_TRUE(ember::MatMul(*a.Transpose(0, 1), a, wide).ok());
+  EXPECT_EQ(Values(arena, wide), (std::vector<float>{17, 22, 27, 22, 29, 36, 27, 36, 45}));
+}
+
+TEST(MatMul, WritesIntoATransposedOutput) {
+  Arena arena;
+  const Tensor a = F32(arena, {2, 3}, {1, 2, 3, 4, 5, 6});
+  const Tensor b = F32(arena, {3, 1}, {1, 1, 1});
+  const Tensor out = Output(arena, {1, 2});
+  ASSERT_TRUE(ember::MatMul(a, b, *out.Transpose(0, 1)).ok());
+  EXPECT_EQ(Values(arena, out), (std::vector<float>{6, 15}));
+}
+
+TEST(MatMul, AnEmptyMiddleDimensionGivesZeros) {
+  Arena arena;
+  const Tensor a = Output(arena, {2, 0});
+  const Tensor b = Output(arena, {0, 2});
+  const Tensor out = F32(arena, {2, 2}, {9, 9, 9, 9});
+  ASSERT_TRUE(ember::MatMul(a, b, out).ok());
+  EXPECT_EQ(Values(arena, out), (std::vector<float>{0, 0, 0, 0}));
+}
+
+TEST(MatMul, AnEmptyOutputDoesNothing) {
+  Arena arena;
+  const Tensor a = Output(arena, {0, 3});
+  const Tensor b = Output(arena, {3, 2});
+  const Tensor out = Output(arena, {0, 2});
+  EXPECT_TRUE(ember::MatMul(a, b, out).ok());
+}
+
+TEST(MatMul, RefusesSizesThatDoNotLineUp) {
+  Arena arena;
+  const Tensor a = Output(arena, {2, 3});
+  const Tensor b = Output(arena, {2, 3});
+  const Tensor out = Output(arena, {2, 3});
+  EXPECT_EQ(ember::MatMul(a, b, out).code(), StatusCode::kInvalidArgument);
+
+  const Tensor b_ok = Output(arena, {3, 4});
+  const Tensor wrong_rows = Output(arena, {3, 4});
+  const Tensor wrong_columns = Output(arena, {2, 5});
+  EXPECT_EQ(ember::MatMul(a, b_ok, wrong_rows).code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(ember::MatMul(a, b_ok, wrong_columns).code(), StatusCode::kInvalidArgument);
+}
+
+TEST(MatMul, RefusesAVectorOrAScalar) {
+  Arena arena;
+  const Tensor vector = Output(arena, {2});
+  const Tensor matrix = Output(arena, {2, 2});
+  const Tensor scalar = Output(arena, {});
+  EXPECT_EQ(ember::MatMul(vector, matrix, matrix).code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(ember::MatMul(matrix, vector, matrix).code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(ember::MatMul(matrix, matrix, scalar).code(), StatusCode::kInvalidArgument);
+}
+
+TEST(MatMul, RefusesAnythingButFloats) {
+  Arena arena;
+  const Shape shape = MakeShape({2, 2});
+  const Tensor ints = *Tensor::Zeros(arena, DType::kI32, shape);
+  const Tensor floats = *Tensor::Zeros(arena, DType::kF32, shape);
+  EXPECT_EQ(ember::MatMul(ints, floats, floats).code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(ember::MatMul(floats, ints, floats).code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(ember::MatMul(floats, floats, ints).code(), StatusCode::kInvalidArgument);
+}
+
 }  // namespace

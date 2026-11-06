@@ -22,4 +22,7 @@ Status Multiply(const TensorView& a, const TensorView& b, const Tensor& out);
 // out[i] = a[i] * factor. Both must have the same shape.
 Status Scale(const TensorView& a, float factor, const Tensor& out);
 
+// Matrix product: [m, k] times [k, n] gives [m, n]. Whatever out held is replaced.
+Status MatMul(const TensorView& a, const TensorView& b, const Tensor& out);
+
 }  // namespace ember
