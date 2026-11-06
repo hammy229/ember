@@ -2,23 +2,22 @@
 // array) and the arena against the system allocator. Real kernels get added
 // here as they exist. It prints only what it measures on this machine.
 #include <array>
-#include <charconv>
 #include <cstddef>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
-#include <optional>
 #include <string>
-#include <string_view>
-#include <system_error>
 #include <utility>
 #include <vector>
 
+#include "bench_args.h"
 #include "ember/aligned_buffer.h"
 #include "ember/arena.h"
 #include "ember/timer.h"
 
 namespace {
+
+using ember_tools::ParseCount;
 
 // 1 GiB of floats. Anything bigger is a typo, not a benchmark.
 constexpr std::size_t kMaxElements = std::size_t{1} << 28;
@@ -32,15 +31,6 @@ float SumAll(const std::vector<float>& v) {
   float total = 0.0F;
   for (float x : v) total += x;
   return total;
-}
-
-// Parses a whole argument as a count from 1 to max. Anything else gives nullopt.
-std::optional<std::size_t> ParseCount(std::string_view text, std::size_t max) {
-  std::size_t value = 0;
-  const char* end = text.data() + text.size();
-  const auto [parsed_to, error] = std::from_chars(text.data(), end, value);
-  if (error != std::errc() || parsed_to != end || value == 0 || value > max) return std::nullopt;
-  return value;
 }
 
 void Print(const std::string& name, const ember::TimingSummary& s) {
