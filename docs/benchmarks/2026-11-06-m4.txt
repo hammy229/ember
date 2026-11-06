@@ -1,0 +1,34 @@
+commit:   a61ad5c
+compiler: Apple clang version 21.0.0 (clang-2100.3.34.2)
+flags:    -O3 -DNDEBUG
+cpu:      Apple M4
+memory:   16 GB
+threads:  1
+
+repeats: 10
+matmul 64x64                             min     0.0179 ms  median     0.0188 ms     29.34 billion math ops/s
+matmul 64x64, transposed                 min     0.0725 ms  median     0.0828 ms      7.23 billion math ops/s
+matmul 64x64, transposed, copied         min     0.0320 ms  median     0.0324 ms     16.41 billion math ops/s
+textbook loops 64x64                     min     0.0857 ms  median     0.0861 ms      6.11 billion math ops/s
+add 64x64                                min     0.0006 ms  median     0.0006 ms      6.81 billion elements/s
+softmax 64x64, each row                  min     0.0074 ms  median     0.0075 ms      0.55 billion elements/s
+softmax 64x64, each column               min     0.0161 ms  median     0.0162 ms      0.25 billion elements/s
+
+repeats: 10
+matmul 256x256                           min     1.0364 ms  median     1.0482 ms     32.37 billion math ops/s
+matmul 256x256, transposed               min     9.7449 ms  median     9.7746 ms      3.44 billion math ops/s
+matmul 256x256, transposed, copied       min     1.2607 ms  median     1.2628 ms     26.62 billion math ops/s
+textbook loops 256x256                   min     9.4875 ms  median     9.8103 ms      3.54 billion math ops/s
+add 256x256                              min     0.0065 ms  median     0.0065 ms     10.07 billion elements/s
+softmax 256x256, each row                min     0.1179 ms  median     0.1181 ms      0.56 billion elements/s
+softmax 256x256, each column             min     0.3796 ms  median     0.3831 ms      0.17 billion elements/s
+
+repeats: 10
+matmul 1024x1024                         min    65.1702 ms  median    65.8239 ms     32.95 billion math ops/s
+matmul 1024x1024, transposed             min   810.2957 ms  median   818.0964 ms      2.65 billion math ops/s
+matmul 1024x1024, transposed, copied     min    69.0571 ms  median    69.4498 ms     31.10 billion math ops/s
+textbook loops 1024x1024                 min   828.4239 ms  median   832.1204 ms      2.59 billion math ops/s
+add 1024x1024                            min     0.1020 ms  median     0.1021 ms     10.28 billion elements/s
+softmax 1024x1024, each row              min     1.8497 ms  median     1.8862 ms      0.57 billion elements/s
+softmax 1024x1024, each column           min     8.7200 ms  median     8.7447 ms      0.12 billion elements/s
+
