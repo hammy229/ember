@@ -490,6 +490,32 @@ TEST(Softmax, ALongRowOfSmallValuesStaysAccurate) {
   EXPECT_NEAR(out.at<float>(0), expected_top, expected_top * 1e-5);
 }
 
+TEST(Softmax, RefusesARowItCannotTurnIntoChances) {
+  Arena arena;
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  const float infinity = std::numeric_limits<float>::infinity();
+  const std::vector<std::vector<float>> bad_rows = {
+      {nan, 1, 2},  // First, where std::max would keep it.
+      {1, nan, 2},  // Later, where std::max would quietly drop it.
+      {1, 2, nan},
+      {1, infinity, 2},
+      {-infinity, -infinity, -infinity},  // Every token hidden, so nothing is left to choose.
+  };
+  for (const std::vector<float>& row : bad_rows) {
+    const Tensor logits = F32(arena, {3}, row);
+    const Tensor out = Output(arena, {3});
+    EXPECT_EQ(ember::Softmax(logits, 0, out).code(), StatusCode::kInvalidArgument);
+  }
+}
+
+TEST(Softmax, FindsABadValueInALaterRow) {
+  Arena arena;
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  const Tensor logits = F32(arena, {2, 2}, {1, 2, 3, nan});
+  const Tensor out = Output(arena, {2, 2});
+  EXPECT_EQ(ember::Softmax(logits, 1, out).code(), StatusCode::kInvalidArgument);
+}
+
 TEST(Softmax, AnEmptyTensorDoesNothing) {
   Arena arena;
   const TensorView logits = *TensorView::Wrap(nullptr, DType::kF32, MakeShape({0, 3}));

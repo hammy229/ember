@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -156,11 +157,17 @@ Status RequireMatMulShapes(const TensorView& a, const TensorView& b, const Tenso
 // answer, because e^(x - c) / sum e^(y - c) has the same c on top and bottom, and it makes the
 // largest term exactly 1. So nothing can overflow, and the total is at least 1, so nothing can
 // divide by zero. The total is a double because a long row of tiny values, added up in a float,
-// would lose them to rounding.
-void SoftmaxRow(const float* from, std::size_t from_step, float* to, std::size_t to_step,
+// would lose them to rounding. Returns false, having written nothing, if the row has a NaN, has
+// positive infinity, or is all negative infinity, since none of those has a meaningful answer.
+bool SoftmaxRow(const float* from, std::size_t from_step, float* to, std::size_t to_step,
                 std::size_t size) {
-  float largest = from[0];
-  for (std::size_t i = 1; i < size; ++i) largest = std::max(largest, from[i * from_step]);
+  float largest = -std::numeric_limits<float>::infinity();
+  for (std::size_t i = 0; i < size; ++i) {
+    const float value = from[i * from_step];
+    if (std::isnan(value)) return false;
+    largest = std::max(largest, value);
+  }
+  if (!std::isfinite(largest)) return false;
   double total = 0.0;
   for (std::size_t i = 0; i < size; ++i) {
     const float value = std::exp(from[i * from_step] - largest);
@@ -170,21 +177,24 @@ void SoftmaxRow(const float* from, std::size_t from_step, float* to, std::size_t
   for (std::size_t i = 0; i < size; ++i) {
     to[i * to_step] = static_cast<float>(static_cast<double>(to[i * to_step]) / total);
   }
+  return true;
 }
 
-// Walks every dimension but the chosen one, and runs SoftmaxRow on each row it finds.
-void SoftmaxAxis(const TensorView& logits, const Tensor& out, std::size_t chosen, std::size_t axis,
+// Walks every dimension but the chosen one, and runs SoftmaxRow on each row it finds. Stops at the
+// first bad row and returns false.
+bool SoftmaxAxis(const TensorView& logits, const Tensor& out, std::size_t chosen, std::size_t axis,
                  const float* from, float* to) {
   if (axis == logits.rank()) {
-    SoftmaxRow(from, logits.stride(chosen), to, out.stride(chosen), logits.dim(chosen));
-  } else if (axis == chosen) {
-    SoftmaxAxis(logits, out, chosen, axis + 1, from, to);
-  } else {
-    for (std::size_t i = 0; i < logits.dim(axis); ++i) {
-      SoftmaxAxis(logits, out, chosen, axis + 1, from + i * logits.stride(axis),
-                  to + i * out.stride(axis));
+    return SoftmaxRow(from, logits.stride(chosen), to, out.stride(chosen), logits.dim(chosen));
+  }
+  if (axis == chosen) return SoftmaxAxis(logits, out, chosen, axis + 1, from, to);
+  for (std::size_t i = 0; i < logits.dim(axis); ++i) {
+    if (!SoftmaxAxis(logits, out, chosen, axis + 1, from + i * logits.stride(axis),
+                     to + i * out.stride(axis))) {
+      return false;
     }
   }
+  return true;
 }
 
 }  // namespace
@@ -200,7 +210,10 @@ Status Softmax(const TensorView& logits, std::size_t axis, const Tensor& out) {
   EMBER_RETURN_IF_ERROR(RequireExactlyOverOrApart(logits, out, "Softmax"));
   // An empty tensor can hold a null pointer, and moving a null pointer is undefined behavior.
   if (out.element_count() == 0) return Status::Ok();
-  SoftmaxAxis(logits, out, axis, 0, logits.data<float>(), out.data<float>());
+  if (!SoftmaxAxis(logits, out, axis, 0, logits.data<float>(), out.data<float>())) {
+    return Status::InvalidArgument(
+        "Softmax needs each row to have a finite score and no NaN or positive infinity");
+  }
   return Status::Ok();
 }
 

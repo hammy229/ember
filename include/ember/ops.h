@@ -33,6 +33,10 @@ Status MatMul(const TensorView& a, const TensorView& b, const Tensor& out);
 // Turns scores into chances that add up to 1 along one dimension. It stays accurate for very large
 // or very small scores, and a score of negative infinity gets a chance of exactly zero, which is
 // how attention hides a token.
+//
+// A row with a NaN, with positive infinity, or with every score negative infinity is an error, so a
+// broken model stops here instead of sampling from garbage. Rows before the bad one are already
+// written by then, so treat out, which may be the input itself, as garbage after a failure.
 Status Softmax(const TensorView& logits, std::size_t axis, const Tensor& out);
 
 }  // namespace ember
