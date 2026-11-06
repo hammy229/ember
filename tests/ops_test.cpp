@@ -295,6 +295,18 @@ TEST(MatMul, RefusesBatchesThatDiffer) {
   EXPECT_EQ(ember::MatMul(a, unbatched, out).code(), StatusCode::kInvalidArgument);
 }
 
+TEST(MatMul, RefusesAnOutputThatTouchesAnInput) {
+  Arena arena;
+  const Tensor a = F32(arena, {2, 2}, {1, 2, 3, 4});
+  const Tensor b = F32(arena, {2, 2}, {5, 6, 7, 8});
+  // A matrix product reads each input element many times, so even writing exactly over an input
+  // would use numbers it had already replaced.
+  EXPECT_EQ(ember::MatMul(a, b, a).code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(ember::MatMul(a, b, b).code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(Values(arena, a), (std::vector<float>{1, 2, 3, 4}));
+  EXPECT_EQ(Values(arena, b), (std::vector<float>{5, 6, 7, 8}));
+}
+
 TEST(MatMul, RefusesAVectorOrAScalar) {
   Arena arena;
   const Tensor vector = Output(arena, {2});

@@ -24,7 +24,8 @@ Status Scale(const TensorView& a, float factor, const Tensor& out);
 
 // Matrix product: [m, k] times [k, n] gives [m, n]. Whatever out held is replaced. Any dimensions
 // before the last two are a batch, must match exactly, and each matrix in it is multiplied on its
-// own, so [heads, tokens, features] times [heads, features, tokens] works.
+// own, so [heads, tokens, features] times [heads, features, tokens] works. The output must not
+// overlap either input at all, since each input element is read many times.
 Status MatMul(const TensorView& a, const TensorView& b, const Tensor& out);
 
 }  // namespace ember

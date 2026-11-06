@@ -157,6 +157,10 @@ Status MatMul(const TensorView& a, const TensorView& b, const Tensor& out) {
   EMBER_RETURN_IF_ERROR(RequireF32(b, "MatMul"));
   EMBER_RETURN_IF_ERROR(RequireF32(out, "MatMul"));
   EMBER_RETURN_IF_ERROR(RequireMatMulShapes(a, b, out));
+  // Each input element is read many times, so unlike Add, writing exactly over an input is wrong.
+  if (MemoryRangesIntersect(a, out) || MemoryRangesIntersect(b, out)) {
+    return Status::InvalidArgument("MatMul cannot write to an output that overlaps an input");
+  }
   // An empty tensor can hold a null pointer, and moving a null pointer is undefined behavior. With
   // an empty middle dimension the output can still have elements, and a sum of nothing is zero.
   if (a.element_count() == 0 || b.element_count() == 0) {
