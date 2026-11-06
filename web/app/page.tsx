@@ -27,16 +27,6 @@ const PROOF = [
   },
 ];
 
-const PLAN = [
-  { when: "Nov 4 to 6", what: "Build setup, tensors, memory allocator, matrix math, softmax, first benchmark", done: true },
-  { when: "Nov 7", what: "Load model weights with memory mapping, fuzz the loader against corrupt files", done: false },
-  { when: "Nov 8 to 9", what: "Attention and the full forward pass. Logits must match Hugging Face, checked in CI", done: false },
-  { when: "Nov 10 to 11", what: "Tokenizer, sampling, KV cache. Real text generation in this browser", done: false },
-  { when: "Nov 13 to 14", what: "NEON SIMD, threads, 8-bit quantization. The same model against llama.cpp, published even if Ember loses", done: false },
-  { when: "Nov 15 to 17", what: "If generation lands on time: autograd, then training a tiny transformer live in the browser", done: false },
-  { when: "Nov 19", what: "Demo day. The code goes public", done: false },
-];
-
 export default function Home() {
   return (
     <>
@@ -123,25 +113,6 @@ export default function Home() {
               </article>
             ))}
           </div>
-        </section>
-
-        <section className="band split" id="plan">
-          <div className="band-head">
-            <h2>What is finished, and what comes next.</h2>
-            <p>These dates are the plan, not promises. A lit coal means finished and checked.</p>
-          </div>
-          <ol className="plan">
-            {PLAN.map((row) => (
-              <li key={row.when} className={row.done ? "is-done" : undefined}>
-                <span className="plan-dot" aria-hidden="true" />
-                <span className="plan-when">{row.when}</span>
-                <span className="plan-what">
-                  {row.what}
-                  {row.done && <span className="sr-only"> (finished)</span>}
-                </span>
-              </li>
-            ))}
-          </ol>
         </section>
 
         <footer className="close">

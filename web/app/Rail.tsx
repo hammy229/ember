@@ -3,7 +3,6 @@ const LINKS = [
   { href: "#softmax", label: "Softmax" },
   { href: "#speed", label: "Speed" },
   { href: "#proof", label: "Proof" },
-  { href: "#plan", label: "Plan" },
 ];
 
 export function Rail() {
