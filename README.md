@@ -2,7 +2,7 @@
 
 An LLM inference engine written from scratch in C++20, with no ML framework. It runs natively and in the browser through WebAssembly.
 
-**Status:** the memory layer is done: tensors, an arena allocator, and sanitizer support. The engine does not generate text yet. See [the plan](docs/PLAN.md) and [how memory works](docs/memory.md).
+**Status:** the memory layer and the core math are done: tensors, an arena allocator, matrix multiplication, softmax, and sanitizer support. The engine does not load a model or generate text yet. See [the plan](docs/PLAN.md), [how memory works](docs/memory.md), and [how the math works](docs/ops.md).
 
 ## Build
 
@@ -20,6 +20,8 @@ Use the `sanitize` preset to run the tests with AddressSanitizer and UBSan, or `
 To use Ember inside another CMake project, add it with `add_subdirectory`. Its tests and `-Werror` stay off unless you turn on `EMBER_BUILD_TESTS` and `EMBER_WERROR`.
 
 `ember_bench [repeats] [elements]` times a placeholder workload and compares the arena to the system allocator on your machine. Use the `release` preset for numbers worth reading.
+
+`./scripts/bench.sh [repeats]` builds the `release` preset, times the math kernels at several sizes, and prints the commit, compiler, flags, and hardware next to the numbers.
 
 ## Website
 
