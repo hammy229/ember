@@ -227,6 +227,15 @@ TEST(MatMul, AnEmptyMiddleDimensionGivesZeros) {
   EXPECT_EQ(Values(arena, out), (std::vector<float>{0, 0, 0, 0}));
 }
 
+TEST(MatMul, AnEmptyMiddleDimensionIsFineOnANullPointer) {
+  Arena arena;
+  const TensorView a = *TensorView::Wrap(nullptr, DType::kF32, MakeShape({2, 0}));
+  const TensorView b = *TensorView::Wrap(nullptr, DType::kF32, MakeShape({0, 2}));
+  const Tensor out = F32(arena, {2, 2}, {9, 9, 9, 9});
+  ASSERT_TRUE(ember::MatMul(a, b, out).ok());
+  EXPECT_EQ(Values(arena, out), (std::vector<float>{0, 0, 0, 0}));
+}
+
 TEST(MatMul, AnEmptyOutputDoesNothing) {
   Arena arena;
   const Tensor a = Output(arena, {0, 3});

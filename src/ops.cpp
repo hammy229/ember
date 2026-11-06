@@ -137,9 +137,12 @@ Status MatMul(const TensorView& a, const TensorView& b, const Tensor& out) {
   EMBER_RETURN_IF_ERROR(RequireF32(b, "MatMul"));
   EMBER_RETURN_IF_ERROR(RequireF32(out, "MatMul"));
   EMBER_RETURN_IF_ERROR(RequireMatMulShapes(a, b, out));
-  // An empty tensor can hold a null pointer, and moving a null pointer is undefined behavior.
-  if (out.element_count() == 0) return Status::Ok();
-  // With an empty middle dimension a and b can be null too, but the loops never read them then.
+  // An empty tensor can hold a null pointer, and moving a null pointer is undefined behavior. With
+  // an empty middle dimension the output can still have elements, and a sum of nothing is zero.
+  if (a.element_count() == 0 || b.element_count() == 0) {
+    out.Fill(0.0F);
+    return Status::Ok();
+  }
   MatMul2D(a, b, out, 0, a.data<float>(), b.data<float>(), out.data<float>());
   return Status::Ok();
 }
