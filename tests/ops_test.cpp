@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
@@ -375,6 +376,146 @@ TEST(MatMul, RefusesAnythingButFloats) {
   EXPECT_EQ(ember::MatMul(ints, floats, floats).code(), StatusCode::kInvalidArgument);
   EXPECT_EQ(ember::MatMul(floats, ints, floats).code(), StatusCode::kInvalidArgument);
   EXPECT_EQ(ember::MatMul(floats, floats, ints).code(), StatusCode::kInvalidArgument);
+}
+
+void ExpectNear(const std::vector<float>& actual, const std::vector<float>& expected,
+                float tolerance = 1e-6F) {
+  ASSERT_EQ(actual.size(), expected.size());
+  for (std::size_t i = 0; i < actual.size(); ++i) {
+    EXPECT_NEAR(actual[i], expected[i], tolerance) << "at " << i;
+  }
+}
+
+TEST(Softmax, GivesTheKnownAnswer) {
+  Arena arena;
+  const Tensor logits = F32(arena, {3}, {1, 2, 3});
+  const Tensor out = Output(arena, {3});
+  ASSERT_TRUE(ember::Softmax(logits, 0, out).ok());
+  ExpectNear(Values(arena, out), {0.09003057F, 0.24472847F, 0.66524096F});
+}
+
+TEST(Softmax, EqualLogitsGiveEqualChances) {
+  Arena arena;
+  const Tensor logits = F32(arena, {4}, {7, 7, 7, 7});
+  const Tensor out = Output(arena, {4});
+  ASSERT_TRUE(ember::Softmax(logits, 0, out).ok());
+  ExpectNear(Values(arena, out), {0.25F, 0.25F, 0.25F, 0.25F});
+}
+
+TEST(Softmax, WorksOnEachRowOrEachColumn) {
+  Arena arena;
+  const Tensor logits = F32(arena, {2, 2}, {0, 0, 1, 3});
+  const Tensor out = Output(arena, {2, 2});
+  ASSERT_TRUE(ember::Softmax(logits, 1, out).ok());
+  ExpectNear(Values(arena, out), {0.5F, 0.5F, 0.11920292F, 0.88079708F});
+  ASSERT_TRUE(ember::Softmax(logits, 0, out).ok());
+  ExpectNear(Values(arena, out), {0.26894142F, 0.04742587F, 0.73105858F, 0.95257413F});
+}
+
+TEST(Softmax, AxisAndTransposeAgree) {
+  Arena arena;
+  const Tensor logits = F32(arena, {2, 3}, {1, -2, 3, 0.5F, 4, -1});
+  const Tensor by_axis = Output(arena, {2, 3});
+  const Tensor by_view = Output(arena, {3, 2});
+  ASSERT_TRUE(ember::Softmax(logits, 0, by_axis).ok());
+  ASSERT_TRUE(ember::Softmax(*logits.Transpose(0, 1), 1, by_view).ok());
+  ExpectNear(Values(arena, by_axis), Values(arena, *by_view.Transpose(0, 1)));
+}
+
+TEST(Softmax, WorksInTheMiddleOfFourDimensions) {
+  Arena arena;
+  const Tensor logits = F32(arena, {1, 2, 2, 1}, {0, 0, 1, 3});
+  const Tensor out = Output(arena, {1, 2, 2, 1});
+  ASSERT_TRUE(ember::Softmax(logits, 2, out).ok());
+  ExpectNear(Values(arena, out), {0.5F, 0.5F, 0.11920292F, 0.88079708F});
+}
+
+TEST(Softmax, CanWriteOverItsInput) {
+  Arena arena;
+  const Tensor logits = F32(arena, {3}, {1, 2, 3});
+  ASSERT_TRUE(ember::Softmax(logits, 0, logits).ok());
+  ExpectNear(Values(arena, logits), {0.09003057F, 0.24472847F, 0.66524096F});
+}
+
+// e^1000 does not fit in a float, so the plain formula gives infinity over infinity here.
+TEST(Softmax, HugeLogitsDoNotTurnIntoNotANumber) {
+  Arena arena;
+  const Tensor logits = F32(arena, {3}, {1001, 1002, 1003});
+  const Tensor out = Output(arena, {3});
+  ASSERT_TRUE(ember::Softmax(logits, 0, out).ok());
+  ExpectNear(Values(arena, out), {0.09003057F, 0.24472847F, 0.66524096F}, 1e-5F);
+}
+
+// The other way around, every e^x rounds to zero and the plain formula divides zero by zero.
+TEST(Softmax, VeryNegativeLogitsDoNotTurnIntoNotANumber) {
+  Arena arena;
+  const Tensor logits = F32(arena, {3}, {-1003, -1002, -1001});
+  const Tensor out = Output(arena, {3});
+  ASSERT_TRUE(ember::Softmax(logits, 0, out).ok());
+  ExpectNear(Values(arena, out), {0.09003057F, 0.24472847F, 0.66524096F}, 1e-5F);
+}
+
+// Attention hides future tokens by setting their score to negative infinity.
+TEST(Softmax, NegativeInfinityGetsExactlyZero) {
+  Arena arena;
+  const float masked = -std::numeric_limits<float>::infinity();
+  const Tensor logits = F32(arena, {3}, {0, masked, 0});
+  const Tensor out = Output(arena, {3});
+  ASSERT_TRUE(ember::Softmax(logits, 0, out).ok());
+  EXPECT_EQ(Values(arena, out), (std::vector<float>{0.5F, 0.0F, 0.5F}));
+}
+
+TEST(Softmax, TheFullRangeOfFloatsDoesNotBreakIt) {
+  Arena arena;
+  const float top = std::numeric_limits<float>::max();
+  const Tensor logits = F32(arena, {2}, {-top, top});
+  const Tensor out = Output(arena, {2});
+  ASSERT_TRUE(ember::Softmax(logits, 0, out).ok());
+  EXPECT_EQ(Values(arena, out), (std::vector<float>{0.0F, 1.0F}));
+}
+
+// A long row of tiny chances, like a large vocabulary. Summing a million of these in a float loses
+// a visible share of the total to rounding.
+TEST(Softmax, ALongRowOfSmallValuesStaysAccurate) {
+  Arena arena;
+  const std::size_t count = 1000000;
+  std::vector<float> values(count, -10.0F);
+  values[0] = 0.0F;
+  const Tensor logits =
+      *Tensor::FromValues<float>(arena, MakeShape({count}), std::span<const float>(values));
+  const Tensor out = Output(arena, {count});
+  ASSERT_TRUE(ember::Softmax(logits, 0, out).ok());
+  const double tiny = std::exp(-10.0);
+  const double expected_top = 1.0 / (1.0 + static_cast<double>(count - 1) * tiny);
+  EXPECT_NEAR(out.at<float>(0), expected_top, expected_top * 1e-5);
+}
+
+TEST(Softmax, AnEmptyTensorDoesNothing) {
+  Arena arena;
+  const TensorView logits = *TensorView::Wrap(nullptr, DType::kF32, MakeShape({0, 3}));
+  const Tensor out = Output(arena, {0, 3});
+  EXPECT_TRUE(ember::Softmax(logits, 1, out).ok());
+}
+
+TEST(Softmax, RefusesABadAxisShapeOrType) {
+  Arena arena;
+  const Tensor logits = Output(arena, {2, 3});
+  const Tensor out = Output(arena, {2, 3});
+  const Tensor wrong_shape = Output(arena, {3, 2});
+  const Tensor ints = *Tensor::Zeros(arena, DType::kI32, MakeShape({2, 3}));
+  const Tensor scalar = Output(arena, {});
+  EXPECT_EQ(ember::Softmax(logits, 2, out).code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(ember::Softmax(logits, 0, wrong_shape).code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(ember::Softmax(ints, 0, out).code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(ember::Softmax(logits, 0, ints).code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(ember::Softmax(scalar, 0, scalar).code(), StatusCode::kInvalidArgument);
+}
+
+TEST(Softmax, RefusesAnOutputThatPartlyOverlapsItsInput) {
+  Arena arena;
+  const Tensor line = F32(arena, {4}, {1, 2, 3, 4});
+  EXPECT_EQ(ember::Softmax(*line.Slice(0, 0, 3), 0, *line.Slice(0, 1, 3)).code(),
+            StatusCode::kInvalidArgument);
 }
 
 }  // namespace

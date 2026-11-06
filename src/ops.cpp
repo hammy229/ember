@@ -1,5 +1,7 @@
 #include "ember/ops.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <string>
 #include <string_view>
@@ -150,7 +152,57 @@ Status RequireMatMulShapes(const TensorView& a, const TensorView& b, const Tenso
   return Status::Ok();
 }
 
+// Softmax of one row, along the strides. Subtracting the largest score first changes nothing in the
+// answer, because e^(x - c) / sum e^(y - c) has the same c on top and bottom, and it makes the
+// largest term exactly 1. So nothing can overflow, and the total is at least 1, so nothing can
+// divide by zero. The total is a double because a long row of tiny values, added up in a float,
+// would lose them to rounding.
+void SoftmaxRow(const float* from, std::size_t from_step, float* to, std::size_t to_step,
+                std::size_t size) {
+  float largest = from[0];
+  for (std::size_t i = 1; i < size; ++i) largest = std::max(largest, from[i * from_step]);
+  double total = 0.0;
+  for (std::size_t i = 0; i < size; ++i) {
+    const float value = std::exp(from[i * from_step] - largest);
+    to[i * to_step] = value;
+    total += static_cast<double>(value);
+  }
+  for (std::size_t i = 0; i < size; ++i) {
+    to[i * to_step] = static_cast<float>(static_cast<double>(to[i * to_step]) / total);
+  }
+}
+
+// Walks every dimension but the chosen one, and runs SoftmaxRow on each row it finds.
+void SoftmaxAxis(const TensorView& logits, const Tensor& out, std::size_t chosen, std::size_t axis,
+                 const float* from, float* to) {
+  if (axis == logits.rank()) {
+    SoftmaxRow(from, logits.stride(chosen), to, out.stride(chosen), logits.dim(chosen));
+  } else if (axis == chosen) {
+    SoftmaxAxis(logits, out, chosen, axis + 1, from, to);
+  } else {
+    for (std::size_t i = 0; i < logits.dim(axis); ++i) {
+      SoftmaxAxis(logits, out, chosen, axis + 1, from + i * logits.stride(axis),
+                  to + i * out.stride(axis));
+    }
+  }
+}
+
 }  // namespace
+
+Status Softmax(const TensorView& logits, std::size_t axis, const Tensor& out) {
+  EMBER_RETURN_IF_ERROR(RequireF32(logits, "Softmax"));
+  EMBER_RETURN_IF_ERROR(RequireF32(out, "Softmax"));
+  EMBER_RETURN_IF_ERROR(RequireSameShape(logits, out, "Softmax"));
+  if (axis >= logits.rank()) {
+    return Status::InvalidArgument("Softmax has no dimension " + std::to_string(axis) + " in " +
+                                   logits.ToString());
+  }
+  EMBER_RETURN_IF_ERROR(RequireExactlyOverOrApart(logits, out, "Softmax"));
+  // An empty tensor can hold a null pointer, and moving a null pointer is undefined behavior.
+  if (out.element_count() == 0) return Status::Ok();
+  SoftmaxAxis(logits, out, axis, 0, logits.data<float>(), out.data<float>());
+  return Status::Ok();
+}
 
 Status MatMul(const TensorView& a, const TensorView& b, const Tensor& out) {
   EMBER_RETURN_IF_ERROR(RequireF32(a, "MatMul"));
