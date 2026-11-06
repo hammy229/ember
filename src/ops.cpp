@@ -120,13 +120,33 @@ void MatMul2D(const TensorView& a, const TensorView& b, const Tensor& out, std::
   }
 }
 
+// Walks the batch dimensions until only one matrix is left.
+void MatMulBatch(const TensorView& a, const TensorView& b, const Tensor& out, std::size_t axis,
+                 const float* from_a, const float* from_b, float* to) {
+  if (axis + 2 == out.rank()) {
+    MatMul2D(a, b, out, axis, from_a, from_b, to);
+    return;
+  }
+  for (std::size_t i = 0; i < out.dim(axis); ++i) {
+    MatMulBatch(a, b, out, axis + 1, from_a + i * a.stride(axis), from_b + i * b.stride(axis),
+                to + i * out.stride(axis));
+  }
+}
+
 Status RequireMatMulShapes(const TensorView& a, const TensorView& b, const Tensor& out) {
   const auto refuse = [&] {
     return Status::InvalidArgument("MatMul cannot multiply " + a.ToString() + " by " +
                                    b.ToString() + " into " + out.ToString());
   };
-  if (a.rank() != 2 || b.rank() != 2 || out.rank() != 2) return refuse();
-  if (a.dim(1) != b.dim(0) || out.dim(0) != a.dim(0) || out.dim(1) != b.dim(1)) return refuse();
+  const std::size_t rank = out.rank();
+  if (rank < 2 || a.rank() != rank || b.rank() != rank) return refuse();
+  for (std::size_t axis = 0; axis + 2 < rank; ++axis) {
+    if (a.dim(axis) != out.dim(axis) || b.dim(axis) != out.dim(axis)) return refuse();
+  }
+  const std::size_t row = rank - 2;
+  const std::size_t column = rank - 1;
+  if (a.dim(column) != b.dim(row)) return refuse();
+  if (out.dim(row) != a.dim(row) || out.dim(column) != b.dim(column)) return refuse();
   return Status::Ok();
 }
 
@@ -143,7 +163,7 @@ Status MatMul(const TensorView& a, const TensorView& b, const Tensor& out) {
     out.Fill(0.0F);
     return Status::Ok();
   }
-  MatMul2D(a, b, out, 0, a.data<float>(), b.data<float>(), out.data<float>());
+  MatMulBatch(a, b, out, 0, a.data<float>(), b.data<float>(), out.data<float>());
   return Status::Ok();
 }
 

@@ -258,6 +258,43 @@ TEST(MatMul, RefusesSizesThatDoNotLineUp) {
   EXPECT_EQ(ember::MatMul(a, b_ok, wrong_columns).code(), StatusCode::kInvalidArgument);
 }
 
+TEST(MatMul, MultipliesEachMatrixInABatchOnItsOwn) {
+  Arena arena;
+  const Tensor a = F32(arena, {2, 2, 2}, {1, 0, 0, 1, 2, 0, 0, 2});
+  const Tensor b = F32(arena, {2, 2, 1}, {3, 4, 5, 6});
+  const Tensor out = Output(arena, {2, 2, 1});
+  ASSERT_TRUE(ember::MatMul(a, b, out).ok());
+  EXPECT_EQ(Values(arena, out), (std::vector<float>{3, 4, 10, 12}));
+}
+
+// The shape attention really uses: [batch, heads, tokens, features] times its own transpose.
+TEST(MatMul, HandlesFourDimensionsWithATranspose) {
+  Arena arena;
+  const Tensor q = F32(arena, {1, 2, 2, 2}, {1, 2, 3, 4, 5, 6, 7, 8});
+  const Tensor out = Output(arena, {1, 2, 2, 2});
+  ASSERT_TRUE(ember::MatMul(q, *q.Transpose(2, 3), out).ok());
+  EXPECT_EQ(Values(arena, out), (std::vector<float>{5, 11, 11, 25, 61, 83, 83, 113}));
+}
+
+TEST(MatMul, AnEmptyBatchDoesNothing) {
+  Arena arena;
+  const TensorView a = *TensorView::Wrap(nullptr, DType::kF32, MakeShape({0, 2, 2}));
+  const Tensor out = Output(arena, {0, 2, 2});
+  EXPECT_TRUE(ember::MatMul(a, a, out).ok());
+}
+
+TEST(MatMul, RefusesBatchesThatDiffer) {
+  Arena arena;
+  const Tensor a = Output(arena, {2, 2, 2});
+  const Tensor b = Output(arena, {3, 2, 2});
+  const Tensor out = Output(arena, {2, 2, 2});
+  const Tensor wrong_out = Output(arena, {3, 2, 2});
+  const Tensor unbatched = Output(arena, {2, 2});
+  EXPECT_EQ(ember::MatMul(a, b, out).code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(ember::MatMul(a, a, wrong_out).code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(ember::MatMul(a, unbatched, out).code(), StatusCode::kInvalidArgument);
+}
+
 TEST(MatMul, RefusesAVectorOrAScalar) {
   Arena arena;
   const Tensor vector = Output(arena, {2});
