@@ -1,6 +1,6 @@
 // Tiny benchmark harness. It times a placeholder workload (summing a float
-// array) and the arena against the system allocator. Real kernels get added
-// here as they exist. It prints only what it measures on this machine.
+// array) and the arena against the system allocator. The math kernels have
+// their own tool, ember_bench_ops. It prints only what it measures on this machine.
 #include <array>
 #include <cstddef>
 #include <cstdlib>

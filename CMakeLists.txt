@@ -60,6 +60,9 @@ set_target_properties(ember_cli PROPERTIES OUTPUT_NAME "ember")
 add_executable(ember_bench tools/ember_bench.cpp)
 target_link_libraries(ember_bench PRIVATE ember ember_warnings)
 
+add_executable(ember_bench_ops tools/ember_bench_ops.cpp)
+target_link_libraries(ember_bench_ops PRIVATE ember ember_warnings)
+
 if(EMBER_BUILD_TESTS)
   include(FetchContent)
   FetchContent_Declare(
@@ -105,5 +108,15 @@ if(EMBER_BUILD_TESTS)
     separate_arguments(args UNIX_COMMAND "${bad_args}")
     add_test(NAME bench_rejects_${name} COMMAND ember_bench ${args})
     set_tests_properties(bench_rejects_${name} PROPERTIES PASS_REGULAR_EXPRESSION "usage:")
+  endforeach()
+
+  add_test(NAME bench_ops_runs COMMAND ember_bench_ops 1 8)
+  set_tests_properties(bench_ops_runs PROPERTIES PASS_REGULAR_EXPRESSION "softmax 8x8, each column")
+
+  foreach(bad_args "abc" "0" "1 0" "1 2 3" "1 4097" "100001")
+    string(REPLACE " " "_" name "${bad_args}")
+    separate_arguments(args UNIX_COMMAND "${bad_args}")
+    add_test(NAME bench_ops_rejects_${name} COMMAND ember_bench_ops ${args})
+    set_tests_properties(bench_ops_rejects_${name} PROPERTIES PASS_REGULAR_EXPRESSION "usage:")
   endforeach()
 endif()
