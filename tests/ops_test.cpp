@@ -523,6 +523,73 @@ TEST(Softmax, AnEmptyTensorDoesNothing) {
   EXPECT_TRUE(ember::Softmax(logits, 1, out).ok());
 }
 
+// A zero in the last dimension leaves the outer loops running, so these would move a null pointer
+// if the empty check were missing. Only the sanitize build can see that, and CI runs it.
+TEST(EmptyTensors, ANullPointerIsNeverMovedWhenTheOuterDimensionHasEntries) {
+  const Tensor empty = *Tensor::Wrap(nullptr, DType::kF32, MakeShape({3, 0}));
+  EXPECT_TRUE(ember::Add(empty, empty, empty).ok());
+  EXPECT_TRUE(ember::Multiply(empty, empty, empty).ok());
+  EXPECT_TRUE(ember::Scale(empty, 2.0F, empty).ok());
+  EXPECT_TRUE(ember::Softmax(empty, 0, empty).ok());
+
+  Arena arena;
+  const TensorView a = *TensorView::Wrap(nullptr, DType::kF32, MakeShape({3, 0, 2}));
+  const Tensor b = Output(arena, {3, 2, 2});
+  const Tensor out = *Tensor::Wrap(nullptr, DType::kF32, MakeShape({3, 0, 2}));
+  EXPECT_TRUE(ember::MatMul(a, b, out).ok());
+
+  const TensorView batched_a = *TensorView::Wrap(nullptr, DType::kF32, MakeShape({2, 3, 0}));
+  const TensorView batched_b = *TensorView::Wrap(nullptr, DType::kF32, MakeShape({2, 0, 2}));
+  const Tensor filled = Output(arena, {2, 3, 2});
+  filled.Fill(9.0F);
+  ASSERT_TRUE(ember::MatMul(batched_a, batched_b, filled).ok());
+  EXPECT_EQ(Values(arena, filled), std::vector<float>(12, 0.0F));
+}
+
+TEST(Softmax, CanWriteOverEachRowOrColumnOfAMatrix) {
+  for (const std::size_t axis : {std::size_t{0}, std::size_t{1}}) {
+    Arena arena;
+    const Tensor logits = F32(arena, {2, 3}, {1, -2, 3, 0.5F, 4, -1});
+    const Tensor apart = Output(arena, {2, 3});
+    ASSERT_TRUE(ember::Softmax(logits, axis, apart).ok());
+    ASSERT_TRUE(ember::Softmax(logits, axis, logits).ok());
+    ExpectNear(Values(arena, logits), Values(arena, apart));
+  }
+}
+
+TEST(Softmax, CanWriteOverATransposedInput) {
+  Arena arena;
+  const Tensor stored = F32(arena, {2, 3}, {1, -2, 3, 0.5F, 4, -1});
+  const Tensor flipped = *stored.Transpose(0, 1);
+  const Tensor apart = Output(arena, {3, 2});
+  ASSERT_TRUE(ember::Softmax(flipped, 1, apart).ok());
+  ASSERT_TRUE(ember::Softmax(flipped, 1, flipped).ok());
+  ExpectNear(Values(arena, flipped), Values(arena, apart));
+}
+
+TEST(Add, CanWriteOverATransposedInput) {
+  Arena arena;
+  const Tensor stored = F32(arena, {2, 3}, {1, 2, 3, 4, 5, 6});
+  const Tensor flipped = *stored.Transpose(0, 1);
+  const Tensor other = F32(arena, {3, 2}, {10, 40, 20, 50, 30, 60});
+  ASSERT_TRUE(ember::Add(flipped, other, flipped).ok());
+  EXPECT_EQ(Values(arena, flipped), (std::vector<float>{11, 44, 22, 55, 33, 66}));
+}
+
+// Attention stores [tokens, heads, features] and swaps the first two, so the batch dimension of the
+// product has a stride that is not the plain row by row one.
+TEST(MatMul, HandlesASwappedBatchDimension) {
+  Arena arena;
+  // Two tokens and two heads. Each head has a 1x2 row of features.
+  const Tensor stored = F32(arena, {2, 2, 1, 2}, {1, 2, 3, 4, 5, 6, 7, 8});
+  const Tensor by_head = *stored.Transpose(0, 1);
+  const Tensor b = F32(arena, {2, 2, 2, 1}, {1, 1, 1, 0, 0, 1, 2, 2});
+  const Tensor out = Output(arena, {2, 2, 1, 1});
+  ASSERT_TRUE(ember::MatMul(by_head, b, out).ok());
+  // by_head[0][0] is [1, 2], [0][1] is [5, 6], [1][0] is [3, 4], and [1][1] is [7, 8].
+  EXPECT_EQ(Values(arena, out), (std::vector<float>{3, 5, 4, 30}));
+}
+
 TEST(Softmax, RefusesABadAxisShapeOrType) {
   Arena arena;
   const Tensor logits = Output(arena, {2, 3});
