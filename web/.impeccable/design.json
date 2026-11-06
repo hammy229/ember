@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-06T00:00:00-06:00",
+  "title": "Design System: Ember",
+  "extensions": {
+    "colorMeta": {
+      "soot": { "role": "neutral", "displayName": "Soot" },
+      "ash": { "role": "neutral", "displayName": "Ash" },
+      "ember": { "role": "primary", "displayName": "Ember", "tonalRamp": ["#5c1e0e", "#c2410c", "#ff6b2c", "#ffd696"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "The hero headline." },
+      "data": { "displayName": "Data", "purpose": "Timings, percentages, and engine status only." }
+    },
+    "shadows": [
+      { "name": "coal-glow", "value": "canvas shadowBlur on cells above level 170, rgba(255, 107, 44, 0.75)", "purpose": "Hot coals only. Turns off when drawing gets slow." }
+    ],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Rail, arrows, and softmax bars." },
+      { "name": "ignite", "value": "1400ms exponential ease-out", "purpose": "The grid heating up on load, once." }
+    ],
+    "breakpoints": [
+      { "name": "phone", "value": "640px" },
+      { "name": "top-bar", "value": "1023px" },
+      { "name": "stacked-lab", "value": "1399px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one action that runs the engine on the visitor's machine.",
+      "html": "<button class=\"ds-primary\">Time it on this machine</button>",
+      "css": ".ds-primary { min-height: 46px; padding: 0 22px; background: #ff6b2c; border: 1px solid #ff6b2c; border-radius: 3px; color: #15110e; font-weight: 600; transition: background 0.15s linear; } .ds-primary:hover { background: #ffd696; border-color: #ffd696; }"
+    },
+    {
+      "name": "Quiet Button",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "Secondary controls. Turns ember while on or under the pointer.",
+      "html": "<button class=\"ds-quiet\">Reset</button>",
+      "css": ".ds-quiet { min-height: 42px; padding: 0 16px; background: none; border: 1px solid #5c4d41; border-radius: 3px; color: #ede5d8; transition: color 0.15s linear, border-color 0.15s linear; } .ds-quiet:hover { color: #ff6b2c; border-color: #ff6b2c; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Banked coals",
+    "overview": "A dark page around a grid the engine is computing live. The layout comes from the author's Tink and MedData sites, and the palette is its own.",
+    "keyCharacteristics": ["One live object", "Hairlines, no cards", "Ember means live or measured"],
+    "rules": [{ "name": "The Live Ember Rule", "body": "If it is orange, it is live, measured, or under the pointer.", "section": "colors" }],
+    "dos": ["Do show the engine working.", "Do label anything made up."],
+    "donts": ["Don't use ember as decoration.", "Don't use mono as a costume."]
+  }
+}
