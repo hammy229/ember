@@ -151,9 +151,9 @@ const float* AttentionFrame(int tokens, int features, float phase) {
       const auto tf = static_cast<float>(t);
       const auto ff = static_cast<float>(f);
       queries->at<float>(t, f) =
-          std::sin(0.31F * (tf + 1.0F) * (ff + 1.0F) / 3.0F + phase * (0.5F + 0.07F * ff));
+          std::sin(0.73F * (tf + 1.0F) * (ff + 1.0F) + phase * (0.5F + 0.07F * ff));
       keys->at<float>(t, f) =
-          std::cos(0.23F * (tf + 1.0F) * (ff + 2.0F) / 3.0F - phase * (0.4F + 0.05F * ff));
+          std::cos(0.59F * (tf + 1.0F) * (ff + 2.0F) - phase * (0.4F + 0.05F * ff));
     }
   }
 
@@ -163,9 +163,10 @@ const float* AttentionFrame(int tokens, int features, float phase) {
   if (!copied.ok()) return nullptr;
   if (!ember::MatMul(*queries, *copied, *scores).ok()) return nullptr;
 
-  // Sharper than the 1 / sqrt(features) in real attention, so the grid shows more contrast.
-  const float sharpen = 4.0F / std::sqrt(static_cast<float>(features));
-  if (!ember::Scale(*scores, sharpen, *scores).ok()) return nullptr;
+  // Softer than the 1 / sqrt(features) in real attention, so heat spreads across each row instead
+  // of landing on one cell.
+  const float soften = 0.45F / std::sqrt(static_cast<float>(features));
+  if (!ember::Scale(*scores, soften, *scores).ok()) return nullptr;
   const float hidden = -std::numeric_limits<float>::infinity();
   for (std::size_t t = 0; t < token_count; ++t) {
     for (std::size_t later = t + 1; later < token_count; ++later) {
