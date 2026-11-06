@@ -14,6 +14,7 @@ const START: Word[] = [
 ];
 
 const HUGE = 1000;
+const SUMMARY_DELAY_MS = 500;
 
 export function SoftmaxLab() {
   const [engine, setEngine] = useState<Engine | null>(null);
@@ -21,6 +22,7 @@ export function SoftmaxLab() {
   const [words, setWords] = useState(START);
   const [temperature, setTemperature] = useState(1);
   const [huge, setHuge] = useState(false);
+  const [summary, setSummary] = useState("");
 
   useEffect(() => {
     let current = true;
@@ -47,14 +49,43 @@ export function SoftmaxLab() {
   }, [engine, words, temperature, huge]);
 
   const refused = engine !== null && chances === null;
+
+  let top: { word: string; chance: number } | null = null;
+  if (chances) {
+    const best = chances.indexOf(Math.max(...chances));
+    top = { word: words[best].word, chance: chances[best] };
+  }
+  const topWord = top?.word ?? null;
+  const topChance = top?.chance ?? null;
+
+  // One calm line for screen readers, once the dragging stops, rather than every number on change.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (refused) setSummary("The engine refused this row.");
+      else if (topWord !== null && topChance !== null) {
+        setSummary(`${topWord} leads at ${(topChance * 100).toFixed(1)}%.`);
+      }
+    }, SUMMARY_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [refused, topWord, topChance]);
+
   const update = (index: number, change: Partial<Word>) =>
     setWords((all) => all.map((word, i) => (i === index ? { ...word, ...change } : word)));
 
   return (
     <div className="lab">
       <p className="lab-sentence">
-        The coals were still <span className="lab-blank" aria-hidden="true" />
+        The coals were still{" "}
+        {topWord ? (
+          <span className="lab-answer">{topWord}</span>
+        ) : (
+          <span className="lab-blank" aria-label="blank" role="img" />
+        )}
       </p>
+
+      <span className="sr-only" aria-live="polite">
+        {summary}
+      </span>
 
       <div className="lab-rows">
         {words.map((word, index) => {
@@ -62,10 +93,11 @@ export function SoftmaxLab() {
           return (
             <div className={word.hidden ? "lab-row is-hidden" : "lab-row"} key={word.word}>
               <span className="lab-word">{word.word}</span>
-              <label className="lab-score">
-                <span className="sr-only">Score for {word.word}</span>
+              <div className="lab-score">
                 <input
                   type="range"
+                  aria-label={`Score for ${word.word}`}
+                  aria-valuetext={word.score.toFixed(1)}
                   min={-6}
                   max={6}
                   step={0.1}
@@ -73,43 +105,51 @@ export function SoftmaxLab() {
                   disabled={word.hidden}
                   onChange={(event) => update(index, { score: Number(event.target.value) })}
                 />
-                <output>{word.score.toFixed(1)}</output>
-              </label>
+                <span className="lab-score-value" aria-hidden="true">
+                  {word.score.toFixed(1)}
+                </span>
+              </div>
               <span className="lab-bar" aria-hidden="true">
-                <span style={{ transform: `scaleX(${chance})` }} />
+                <span
+                  style={{
+                    transform: `scaleX(${chance})`,
+                    background: `color-mix(in oklab, var(--ember-deep), var(--ember-hot) ${Math.round(chance * 100)}%)`,
+                  }}
+                />
               </span>
-              <output className="lab-chance">
-                {chances ? `${(chance * 100).toFixed(1)}%` : "n/a"}
-              </output>
+              <span className="lab-chance">{chances ? `${(chance * 100).toFixed(1)}%` : "n/a"}</span>
               <button
                 type="button"
-                className="lab-hide"
-                aria-pressed={word.hidden}
-                aria-label={`${word.hidden ? "Show" : "Hide"} ${word.word}`}
+                className={word.hidden ? "lab-hide is-on" : "lab-hide"}
                 onClick={() => update(index, { hidden: !word.hidden })}
               >
                 {word.hidden ? "Show" : "Hide"}
+                <span className="sr-only"> {word.word}</span>
               </button>
             </div>
           );
         })}
       </div>
 
-      <label className="lab-temperature">
-        <span>Temperature</span>
+      <div className="lab-temperature">
+        <label htmlFor="lab-temperature">Temperature</label>
         <input
+          id="lab-temperature"
           type="range"
+          aria-valuetext={temperature.toFixed(2)}
           min={0.1}
           max={3}
           step={0.05}
           value={temperature}
           onChange={(event) => setTemperature(Number(event.target.value))}
         />
-        <output>{temperature.toFixed(2)}</output>
-      </label>
+        <span className="lab-temperature-value" aria-hidden="true">
+          {temperature.toFixed(2)}
+        </span>
+      </div>
 
       <div className="lab-actions">
-        <button type="button" aria-pressed={huge} onClick={() => setHuge(!huge)}>
+        <button type="button" className={huge ? "is-on" : undefined} onClick={() => setHuge(!huge)}>
           {huge ? `Take ${HUGE} back off every score` : `Add ${HUGE} to every score`}
         </button>
         <button
@@ -131,7 +171,7 @@ export function SoftmaxLab() {
       </div>
 
       <p className={refused ? "lab-note is-refused" : "lab-note"} role="status">
-        {failed && "The engine could not load in this browser, so these bars cannot move."}
+        {failed && "The engine could not load, so these bars cannot move. Reload to try again."}
         {!failed && !engine && "Loading the engine."}
         {refused &&
           "The engine refused this row and returned an error. With every word hidden there is nothing left to choose, and a made-up answer would be worse than none."}

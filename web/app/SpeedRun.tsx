@@ -14,11 +14,13 @@ const MIN_RUN_MS = 30;
 const RUNS = 5;
 const SLOW_RUNS = 2;
 const SLOW_CALL_MS = 200;
+// 1024 is 64 times the work of 256. Past this, it would freeze the tab for seconds at a time.
+const TOO_SLOW_AT_256_MS = 60;
 
 type Phase =
   | { kind: "idle" }
-  | { kind: "running"; size: number }
-  | { kind: "done" }
+  | { kind: "running"; size: number | null }
+  | { kind: "done"; message: string }
   | { kind: "failed" };
 
 function formatMs(ms: number) {
@@ -32,7 +34,9 @@ const nextTask = () => new Promise((resolve) => setTimeout(resolve, 0));
 export function SpeedRun() {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [results, setResults] = useState<Record<number, number>>({});
+  const [skipped, setSkipped] = useState(false);
   const alive = useRef(true);
+  const busy = useRef(false);
 
   useEffect(() => {
     alive.current = true;
@@ -42,11 +46,20 @@ export function SpeedRun() {
   }, []);
 
   const run = async () => {
+    if (busy.current) return;
+    busy.current = true;
     setResults({});
+    setSkipped(false);
+    setPhase({ kind: "running", size: null });
     try {
       const engine = await loadEngine();
+      const measured: Record<number, number> = {};
       for (const { size } of SAVED) {
         if (!alive.current) return;
+        if (size === 1024 && measured[256] > TOO_SLOW_AT_256_MS) {
+          setSkipped(true);
+          continue;
+        }
         setPhase({ kind: "running", size });
         await nextTask();
         if (!engine.matmul(size, 1)) throw new Error("the engine reported an error");
@@ -67,11 +80,20 @@ export function SpeedRun() {
           engine.matmul(size, calls);
           fastest = Math.min(fastest, (performance.now() - started) / calls);
         }
-        setResults((all) => ({ ...all, [size]: fastest }));
+        measured[size] = fastest;
+        setResults({ ...measured });
       }
-      if (alive.current) setPhase({ kind: "done" });
+      const largest = measured[1024] !== undefined ? 1024 : 256;
+      if (alive.current) {
+        setPhase({
+          kind: "done",
+          message: `Done. ${largest} x ${largest} took ${formatMs(measured[largest])} in this browser.`,
+        });
+      }
     } catch {
       if (alive.current) setPhase({ kind: "failed" });
+    } finally {
+      busy.current = false;
     }
   };
 
@@ -99,9 +121,11 @@ export function SpeedRun() {
               <td className={results[size] === undefined ? "run-empty" : "run-live"}>
                 {results[size] !== undefined
                   ? formatMs(results[size])
-                  : running && phase.size === size
+                  : phase.kind === "running" && phase.size === size
                     ? "timing"
-                    : "not run"}
+                    : skipped && size === 1024
+                      ? "skipped, too slow here"
+                      : "not run"}
               </td>
               <td>{formatMs(nativeMs)}</td>
             </tr>
@@ -109,14 +133,25 @@ export function SpeedRun() {
         </tbody>
       </table>
       <div className="run-action">
-        <button type="button" className="primary" disabled={running} onClick={run}>
+        <button
+          type="button"
+          className="primary"
+          aria-disabled={running}
+          onClick={run}
+        >
           {running ? "Timing" : phase.kind === "done" ? "Time it again" : "Time it on this machine"}
         </button>
-        <p role="status">
-          {phase.kind === "failed" && "The engine could not run here, so there is no timing."}
-          {phase.kind !== "failed" &&
-            "Fastest of up to 5 runs, on one thread. The tab can pause for a moment at the largest size. The WebAssembly build has no SIMD yet, and two different machines are not a fair race."}
-        </p>
+        <div>
+          <p>
+            Fastest of up to 5 runs, on one thread. The tab can pause for a moment at the largest
+            size. The WebAssembly build has no SIMD yet, and two different machines are not a fair
+            race.
+          </p>
+          <p className="run-result" role="status">
+            {phase.kind === "failed" && "The engine could not run here, so there is no timing."}
+            {phase.kind === "done" && phase.message}
+          </p>
+        </div>
       </div>
     </div>
   );

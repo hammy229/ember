@@ -1,4 +1,5 @@
 import { CoalField } from "./CoalField";
+import { LiveChecks } from "./LiveChecks";
 import { Rail } from "./Rail";
 import { SoftmaxLab } from "./SoftmaxLab";
 import { SpeedRun } from "./SpeedRun";
@@ -18,7 +19,7 @@ const PROOF = [
     body: "Writing a matrix product over its own input would corrupt it with no error, so MatMul returns one instead. A NaN stops at Softmax rather than reaching a sampler.",
   },
   {
-    title: "Machines check it on every push",
+    title: "Machines check every change to main",
     body: "CI builds with GCC and runs the tests under AddressSanitizer and UBSan. UBSan caught a real null pointer bug in MatMul on Nov 6, before that code was ever pushed.",
   },
   {
@@ -69,7 +70,7 @@ export default function Home() {
 
         <section className="band" id="speed">
           <div className="band-wide">
-            <h2>The order of three loops is worth a factor of twelve.</h2>
+            <h2>The order of three loops is worth more than a factor of twelve.</h2>
             <p className="band-lead">
               MatMul and the textbook loops add the same numbers in the same order, but only MatMul
               reads memory in a straight line. Attention multiplies by a transposed matrix, which
@@ -85,7 +86,10 @@ export default function Home() {
                 <div key={row.name}>
                   <dt>{row.name}</dt>
                   <dd>
-                    <span className="bar" style={{ width: `${(row.ms / SLOWEST) * 88}%` }} />
+                    <span
+                      className="bar"
+                      style={{ width: `calc((100% - 76px) * ${row.ms / SLOWEST})` }}
+                    />
                     <span className="bar-value">{row.ms.toFixed(0)} ms</span>
                   </dd>
                 </div>
@@ -105,6 +109,7 @@ export default function Home() {
           <div className="band-wide">
             <h2>Built so that you can check it instead of trusting it.</h2>
           </div>
+          <LiveChecks />
           <div className="columns">
             {PROOF.map((item) => (
               <article key={item.title}>
@@ -116,7 +121,6 @@ export default function Home() {
         </section>
 
         <footer className="close">
-          <p className="close-line">The code goes public on November 19.</p>
           <p className="close-by">
             Made by{" "}
             <a className="plain" href="https://arhamdoshi.dev">

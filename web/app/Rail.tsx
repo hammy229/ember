@@ -1,3 +1,7 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
 const LINKS = [
   { href: "#grid", label: "Live grid" },
   { href: "#softmax", label: "Softmax" },
@@ -6,6 +10,25 @@ const LINKS = [
 ];
 
 export function Rail() {
+  const [current, setCurrent] = useState(LINKS[0].href);
+
+  useEffect(() => {
+    // Only a thin band across the middle of the window counts, so one section is current at a time.
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) setCurrent(`#${entry.target.id}`);
+        }
+      },
+      { rootMargin: "-45% 0px -50% 0px" },
+    );
+    for (const link of LINKS) {
+      const section = document.querySelector(link.href);
+      if (section) observer.observe(section);
+    }
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <nav className="rail" aria-label="Sections">
       <a className="rail-mark" href="#grid" aria-label="Ember, back to the top">
@@ -22,7 +45,7 @@ export function Rail() {
       <ul>
         {LINKS.map((link) => (
           <li key={link.href}>
-            <a href={link.href}>
+            <a href={link.href} aria-current={current === link.href ? "location" : undefined}>
               <span>{link.label}</span>
             </a>
           </li>

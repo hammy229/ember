@@ -17,7 +17,7 @@ The engine is real and running in this tab, and every claim can be checked. Show
 - No number appears unless a script in this repo measured it, or the visitor's own browser measures it live.
 - Say plainly what Ember cannot do yet. Until Milestone 2, it does not load a model or generate text.
 - Anything made up for a demo, such as scores or queries, is labeled as made up.
-- No repo link until publish day, Nov 19, 2026. The repo and site stay private until then.
+- No repo link until publish day, Nov 19, 2026. The repo and site stay private until then, and the page does not announce the date.
 - No em or en dashes in written copy.
 
 ## Brand commitments
