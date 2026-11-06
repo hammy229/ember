@@ -3,8 +3,12 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
+#include <limits>
+#include <span>
 
 #include "ember/arena.h"
+#include "ember/ops.h"
 #include "ember/shape.h"
 #include "ember/tensor.h"
 #include "ember/version.h"
@@ -72,6 +76,51 @@ int RunMemorySelfCheck() {
   return 0;
 }
 
+// The math ops on 32-bit WebAssembly, where the compiler and libm differ from the native build.
+// Returns 0 if everything holds, or the number of the first check that failed.
+int RunOpsSelfCheck() {
+  using ember::Arena;
+  using ember::Shape;
+  using ember::Tensor;
+
+  Arena arena;
+  const auto make = [&](std::initializer_list<std::size_t> dims, std::span<const float> values) {
+    return Tensor::FromValues<float>(arena, *Shape::Make(dims), values);
+  };
+
+  const std::array<float, 6> a_values{1, 2, 3, 4, 5, 6};
+  const std::array<float, 6> b_values{7, 8, 9, 10, 11, 12};
+  const std::array<float, 4> zeros{0, 0, 0, 0};
+  const auto a = make({2, 3}, a_values);
+  const auto b = make({3, 2}, b_values);
+  const auto out = make({2, 2}, zeros);
+  if (!a.ok() || !b.ok() || !out.ok()) return 1;
+
+  if (!ember::MatMul(*a, *b, *out).ok()) return 2;
+  if (out->at<float>(0, 0) != 58.0F || out->at<float>(1, 1) != 154.0F) return 3;
+
+  // Through a transpose, the case attention uses.
+  const auto flipped = a->Transpose(0, 1);
+  if (!flipped.ok() || !ember::MatMul(*a, *flipped, *out).ok()) return 4;
+  if (out->at<float>(0, 1) != 32.0F || out->at<float>(1, 1) != 77.0F) return 5;
+
+  // An output on top of an input has to be refused here too.
+  if (ember::MatMul(*out, *out, *out).ok()) return 6;
+
+  // These logits overflow a float if softmax ever computes e^x directly.
+  const std::array<float, 3> logits_values{1001, 1002, 1003};
+  const auto logits = make({3}, logits_values);
+  if (!logits.ok() || !ember::Softmax(*logits, 0, *logits).ok()) return 7;
+  const float total = logits->at<float>(0) + logits->at<float>(1) + logits->at<float>(2);
+  if (total < 0.9999F || total > 1.0001F) return 8;
+  if (logits->at<float>(2) < 0.665F || logits->at<float>(2) > 0.666F) return 9;
+
+  const std::array<float, 2> bad_values{1, std::numeric_limits<float>::quiet_NaN()};
+  const auto bad = make({2}, bad_values);
+  if (!bad.ok() || ember::Softmax(*bad, 0, *bad).ok()) return 10;
+  return 0;
+}
+
 }  // namespace
 
 extern "C" {
@@ -79,5 +128,7 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE const char* ember_version() { return ember::version(); }
 
 EMSCRIPTEN_KEEPALIVE int ember_memory_self_check() { return RunMemorySelfCheck(); }
+
+EMSCRIPTEN_KEEPALIVE int ember_ops_self_check() { return RunOpsSelfCheck(); }
 
 }  // extern "C"
