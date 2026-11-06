@@ -12,19 +12,27 @@ repeats="${1:-10}"
 cmake --preset release >/dev/null
 cmake --build --preset release --target ember_bench_ops >/dev/null
 
-compiler="$(grep -m1 '^CMAKE_CXX_COMPILER:' build/release/CMakeCache.txt | cut -d= -f2)"
-flags="$(grep -m1 '^CMAKE_CXX_FLAGS_RELEASE:' build/release/CMakeCache.txt | cut -d= -f2)"
+cached() { grep -m1 "^$1:" build/release/CMakeCache.txt | cut -d= -f2-; }
+
+# An old build directory can keep settings the preset does not name, and the numbers would look
+# normal while coming from the wrong build.
+if [[ "$(cached CMAKE_BUILD_TYPE)" != "Release" || "$(cached EMBER_SANITIZE)" == "ON" ]]; then
+  echo "build/release is not a plain release build, delete it and run this again" >&2
+  exit 1
+fi
+
 local_changes=""
-git diff --quiet HEAD || local_changes=" (with local changes)"
+[[ -z "$(git status --porcelain)" ]] || local_changes=" (with local changes)"
 
 echo "commit:   $(git rev-parse --short HEAD)$local_changes"
-echo "compiler: $("$compiler" --version | head -1)"
-echo "flags:    $flags"
+echo "compiler: $("$(cached CMAKE_CXX_COMPILER)" --version | head -1)"
+echo "flags:    $(cached CMAKE_CXX_FLAGS_RELEASE)"
 if [[ "$(uname)" == "Darwin" ]]; then
   echo "cpu:      $(sysctl -n machdep.cpu.brand_string)"
   echo "memory:   $(($(sysctl -n hw.memsize) / 1024 / 1024 / 1024)) GB"
 else
-  echo "cpu:      $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)"
+  # Linux on ARM has no model name line in /proc/cpuinfo.
+  echo "cpu:      $(lscpu | grep -m1 'Model name' | cut -d: -f2- | xargs) ($(uname -m))"
   echo "memory:   $(($(grep MemTotal /proc/meminfo | awk '{print $2}') / 1024 / 1024)) GB"
 fi
 echo "threads:  1"
