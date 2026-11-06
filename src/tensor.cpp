@@ -49,12 +49,6 @@ ByteRange RangeOf(const TensorView& tensor) {
   return {tensor.raw_data(), tensor.raw_data() + (last_element + 1) * element_bytes};
 }
 
-bool Overlaps(const ByteRange& a, const ByteRange& b) {
-  // std::less gives a total order even for pointers into different blocks of memory.
-  const std::less<const std::byte*> before;
-  return before(a.first, b.end) && before(b.first, a.end);
-}
-
 void CopyAxis(const TensorView& source, const Tensor& target, std::size_t axis,
               const std::byte* from, std::byte* to) {
   const std::size_t element_bytes = SizeOf(source.dtype());
@@ -221,7 +215,7 @@ Status Tensor::CopyFrom(const TensorView& source) const {
     return Status::InvalidArgument("cannot copy " + source.ToString() + " into " + ToString());
   }
   if (element_count() == 0) return Status::Ok();
-  if (Overlaps(RangeOf(source), RangeOf(*this))) {
+  if (MemoryRangesIntersect(source, *this)) {
     return Status::InvalidArgument("cannot copy between tensors whose memory ranges intersect");
   }
   if (source.is_contiguous() && is_contiguous()) {
@@ -236,6 +230,15 @@ StatusOr<Tensor> Tensor::CopyOf(Arena& arena, const TensorView& source) {
   EMBER_ASSIGN_OR_RETURN(const Tensor copy, Uninitialized(arena, source.dtype(), source.shape()));
   EMBER_RETURN_IF_ERROR(copy.CopyFrom(source));
   return copy;
+}
+
+bool MemoryRangesIntersect(const TensorView& a, const TensorView& b) {
+  if (a.element_count() == 0 || b.element_count() == 0) return false;
+  const ByteRange range_a = RangeOf(a);
+  const ByteRange range_b = RangeOf(b);
+  // std::less gives a total order even for pointers into different blocks of memory.
+  const std::less<const std::byte*> before;
+  return before(range_a.first, range_b.end) && before(range_b.first, range_a.end);
 }
 
 }  // namespace ember

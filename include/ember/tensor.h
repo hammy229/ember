@@ -186,4 +186,9 @@ class Tensor : public TensorView {
                                     std::size_t value_count);
 };
 
+// True if the memory ranges two tensors span intersect. An empty tensor spans nothing. It looks at
+// ranges, not elements, so two columns of one matrix count as intersecting even though they share
+// no element. Anything that writes to one tensor while reading another should ask this first.
+bool MemoryRangesIntersect(const TensorView& a, const TensorView& b);
+
 }  // namespace ember

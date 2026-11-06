@@ -571,6 +571,31 @@ TEST(TensorDeathTest, ReadingAsTheWrongTypeIsABug) {
   EXPECT_DEATH((void)tensor.data<std::int32_t>(), "wrong element type");
 }
 
+TEST(MemoryRangesIntersect, SeesSharedMemoryAndNothingElse) {
+  Arena arena;
+  const Tensor matrix = Counting2x3(arena);
+  const Tensor other = Counting2x3(arena);
+  const Tensor first_row = *matrix.Slice(0, 0, 1);
+  const Tensor second_row = *matrix.Slice(0, 1, 1);
+  EXPECT_TRUE(ember::MemoryRangesIntersect(matrix, matrix));
+  EXPECT_TRUE(ember::MemoryRangesIntersect(matrix, first_row));
+  EXPECT_FALSE(ember::MemoryRangesIntersect(matrix, other));
+  EXPECT_FALSE(ember::MemoryRangesIntersect(first_row, second_row));
+}
+
+TEST(MemoryRangesIntersect, ColumnsOfOneMatrixCountBecauseOnlyRangesAreCompared) {
+  Arena arena;
+  const Tensor matrix = Counting2x3(arena);
+  EXPECT_TRUE(ember::MemoryRangesIntersect(*matrix.Slice(1, 0, 1), *matrix.Slice(1, 1, 1)));
+}
+
+TEST(MemoryRangesIntersect, AnEmptyTensorSpansNothing) {
+  Arena arena;
+  const Tensor matrix = Counting2x3(arena);
+  EXPECT_FALSE(ember::MemoryRangesIntersect(matrix, *matrix.Slice(0, 0, 0)));
+  EXPECT_FALSE(ember::MemoryRangesIntersect(TensorView(), matrix));
+}
+
 TEST(TensorDeathTest, AskingForAStridePastTheRankIsABug) {
   Arena arena;
   const Tensor tensor = Counting2x3(arena);
