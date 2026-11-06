@@ -1,5 +1,7 @@
 // Times the math kernels on one thread. It prints only what it measures on this machine. Use
 // scripts/bench.sh, which builds the release preset and records the machine next to the numbers.
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdlib>
 #include <iomanip>
@@ -7,6 +9,7 @@
 #include <random>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "bench_args.h"
 #include "ember/arena.h"
@@ -66,24 +69,51 @@ void TextbookMatMul(const float* a, const float* b, float* out, std::size_t size
   }
 }
 
-// Times fn after changing the input, so the compiler cannot reuse an earlier answer, and reads the
-// output, so it cannot throw the work away. The fastest run is the steadiest number on a busy
-// machine, because other programs can only slow a run down.
+// Runs shorter than this are mostly the stopwatch, so fast kernels repeat inside each timed run.
+constexpr double kMinRunMs = 2.0;
+
+// Times fn and reports the time for one call. It changes the input each run, which stops the
+// compiler reusing an answer from the textbook loops in this file, and reads the output, so the
+// work cannot be thrown away. The fastest run is the steadiest number on a busy machine, because
+// other programs can only slow a run down.
 template <typename Fn>
 void Measure(const std::string& name, const Tensor& input, const Tensor& output, double operations,
              const char* unit, std::size_t repeats, Fn&& fn) {
+  ember::Stopwatch probe;
+  fn();
+  const double one_call_ms = std::max(probe.ElapsedMs(), 1e-6);
+  const auto calls = static_cast<std::size_t>(std::ceil(kMinRunMs / one_call_ms));
+
   std::size_t run = 0;
   const ember::TimingSummary timing = ember::Repeat(
       [&] {
         input.data<float>()[0] = static_cast<float>(run++ % 2);
-        fn();
+        for (std::size_t i = 0; i < calls; ++i) fn();
         g_sink = output.data<float>()[output.element_count() - 1];
       },
       repeats, 1);
+  const double per_call = static_cast<double>(calls);
+  const double min_ms = timing.min_ms / per_call;
   std::cout << std::left << std::setw(40) << name << std::right << std::fixed
-            << std::setprecision(3) << " min " << std::setw(10) << timing.min_ms << " ms  median "
-            << std::setw(10) << timing.median_ms << " ms  " << std::setprecision(2) << std::setw(8)
-            << operations / (timing.min_ms * 1e6) << " " << unit << "\n";
+            << std::setprecision(4) << " min " << std::setw(10) << min_ms << " ms  median "
+            << std::setw(10) << timing.median_ms / per_call << " ms  " << std::setprecision(2)
+            << std::setw(8) << operations / (min_ms * 1e6) << " " << unit << "\n";
+}
+
+// A fast wrong answer must never reach a results table, so the two products have to agree first.
+// They add the same numbers in the same order, so only rounding from fused multiply-adds can
+// differ.
+void RequireProductsAgree(const Tensor& a, const Tensor& b, const Tensor& out, std::size_t size) {
+  Require(ember::MatMul(a, b, out));
+  std::vector<float> textbook(out.element_count());
+  TextbookMatMul(a.data<float>(), b.data<float>(), textbook.data(), size);
+  const float tolerance = 1e-4F * static_cast<float>(size);
+  for (std::size_t i = 0; i < textbook.size(); ++i) {
+    if (std::abs(out.data<float>()[i] - textbook[i]) > tolerance) {
+      std::cerr << "MatMul and the textbook loops disagree at element " << i << "\n";
+      std::abort();
+    }
+  }
 }
 
 int Usage() {
@@ -115,6 +145,7 @@ int main(int argc, char** argv) {
   const Tensor b = RandomMatrix(arena, size, random);
   const Tensor out = RandomMatrix(arena, size, random);
   const Tensor b_transposed = Require(b.Transpose(0, 1));
+  RequireProductsAgree(a, b, out, size);
 
   const double count = static_cast<double>(size);
   const double elements = count * count;
