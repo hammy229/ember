@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
+#include <random>
 #include <span>
 #include <vector>
 
@@ -305,6 +306,55 @@ TEST(MatMul, RefusesAnOutputThatTouchesAnInput) {
   EXPECT_EQ(ember::MatMul(a, b, b).code(), StatusCode::kInvalidArgument);
   EXPECT_EQ(Values(arena, a), (std::vector<float>{1, 2, 3, 4}));
   EXPECT_EQ(Values(arena, b), (std::vector<float>{5, 6, 7, 8}));
+}
+
+// The plainest possible matrix product, written from the definition, to check the real one against.
+float TextbookEntry(const TensorView& a, const TensorView& b, std::size_t row, std::size_t column) {
+  float total = 0.0F;
+  for (std::size_t k = 0; k < a.dim(1); ++k) total += a.at<float>(row, k) * b.at<float>(k, column);
+  return total;
+}
+
+Tensor RandomMatrix(Arena& arena, std::mt19937& random, std::size_t rows, std::size_t columns) {
+  const Tensor matrix = Output(arena, {rows, columns});
+  std::uniform_real_distribution<float> value(-10.0F, 10.0F);
+  for (std::size_t i = 0; i < rows; ++i) {
+    for (std::size_t j = 0; j < columns; ++j) matrix.at<float>(i, j) = value(random);
+  }
+  return matrix;
+}
+
+// Every mix of plain and transposed inputs and outputs, at random sizes, against the definition.
+TEST(MatMul, MatchesTheDefinitionOnRandomMatricesAndLayouts) {
+  std::mt19937 random(12345);
+  std::uniform_int_distribution<std::size_t> size(1, 40);
+  for (int trial = 0; trial < 300; ++trial) {
+    Arena arena;
+    const std::size_t rows = size(random);
+    const std::size_t middle = size(random);
+    const std::size_t columns = size(random);
+    const bool flip_a = (trial & 1) != 0;
+    const bool flip_b = (trial & 2) != 0;
+    const bool flip_out = (trial & 4) != 0;
+
+    const Tensor stored_a = flip_a ? RandomMatrix(arena, random, middle, rows)
+                                   : RandomMatrix(arena, random, rows, middle);
+    const Tensor stored_b = flip_b ? RandomMatrix(arena, random, columns, middle)
+                                   : RandomMatrix(arena, random, middle, columns);
+    const Tensor stored_out =
+        flip_out ? Output(arena, {columns, rows}) : Output(arena, {rows, columns});
+    const TensorView a = flip_a ? TensorView(*stored_a.Transpose(0, 1)) : TensorView(stored_a);
+    const TensorView b = flip_b ? TensorView(*stored_b.Transpose(0, 1)) : TensorView(stored_b);
+    const Tensor out = flip_out ? *stored_out.Transpose(0, 1) : stored_out;
+
+    ASSERT_TRUE(ember::MatMul(a, b, out).ok());
+    for (std::size_t i = 0; i < rows; ++i) {
+      for (std::size_t j = 0; j < columns; ++j) {
+        ASSERT_NEAR(out.at<float>(i, j), TextbookEntry(a, b, i, j), 1e-2F)
+            << "trial " << trial << " at " << i << ", " << j;
+      }
+    }
+  }
 }
 
 TEST(MatMul, RefusesAVectorOrAScalar) {
