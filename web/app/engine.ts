@@ -42,9 +42,12 @@ function wrap(module: EmberModule): Engine {
     },
     softmax(scores) {
       const bytes = scores.length * 4;
-      const input = module._malloc(bytes);
-      const output = module._malloc(bytes);
+      let input = 0;
+      let output = 0;
       try {
+        input = module._malloc(bytes);
+        output = module._malloc(bytes);
+        if (input === 0 || output === 0) return null;
         module.HEAPF32.set(scores, input >> 2);
         if (module._ember_softmax_row(input, output, scores.length) !== 0) return null;
         const start = output >> 2;
@@ -63,9 +66,14 @@ function wrap(module: EmberModule): Engine {
 let loading: Promise<Engine> | null = null;
 
 export function loadEngine(): Promise<Engine> {
-  loading ??= import(/* turbopackIgnore: true */ /* webpackIgnore: true */ ENGINE_URL).then(
-    async ({ default: createModule }: { default: () => Promise<EmberModule> }) =>
+  loading ??= import(/* turbopackIgnore: true */ /* webpackIgnore: true */ ENGINE_URL)
+    .then(async ({ default: createModule }: { default: () => Promise<EmberModule> }) =>
       wrap(await createModule()),
-  );
+    )
+    .catch((error: unknown) => {
+      // Forget a failed load, so a passing network problem does not last until a full reload.
+      loading = null;
+      throw error;
+    });
   return loading;
 }
