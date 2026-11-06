@@ -80,7 +80,7 @@ void Measure(const std::string& name, const Tensor& input, const Tensor& output,
         g_sink = output.data<float>()[output.element_count() - 1];
       },
       repeats, 1);
-  std::cout << std::left << std::setw(34) << name << std::right << std::fixed
+  std::cout << std::left << std::setw(40) << name << std::right << std::fixed
             << std::setprecision(3) << " min " << std::setw(10) << timing.min_ms << " ms  median "
             << std::setw(10) << timing.median_ms << " ms  " << std::setprecision(2) << std::setw(8)
             << operations / (timing.min_ms * 1e6) << " " << unit << "\n";
@@ -126,6 +126,14 @@ int main(int argc, char** argv) {
           [&] { Require(ember::MatMul(a, b, out)); });
   Measure("matmul " + dims + ", transposed", a, out, product_operations, "billion math ops/s",
           repeats, [&] { Require(ember::MatMul(a, b_transposed, out)); });
+  // The same product again, paying for one copy first so the inner loop reads memory in a line.
+  const ember::Arena::Mark before_copy = arena.mark();
+  Measure("matmul " + dims + ", transposed, copied", a, out, product_operations,
+          "billion math ops/s", repeats, [&] {
+            const Tensor copied = Require(Tensor::CopyOf(arena, b_transposed));
+            Require(ember::MatMul(a, copied, out));
+            arena.Rewind(before_copy);
+          });
   Measure("textbook loops " + dims, a, out, product_operations, "billion math ops/s", repeats,
           [&] { TextbookMatMul(a.data<float>(), b.data<float>(), out.data<float>(), size); });
   Measure("add " + dims, a, out, elements, "billion elements/s", repeats,

@@ -28,6 +28,10 @@ Status Scale(const TensorView& a, float factor, const Tensor& out);
 // before the last two are a batch, must match exactly, and each matrix in it is multiplied on its
 // own, so [heads, tokens, features] times [heads, features, tokens] works. The output must not
 // overlap either input at all, since each input element is read many times.
+//
+// A transposed b gives the right answer but is much slower, because the inner loop can no longer
+// read memory in a straight line. For anything but a small matrix, take Tensor::CopyOf(arena, b)
+// first. docs/ops.md has the measurements.
 Status MatMul(const TensorView& a, const TensorView& b, const Tensor& out);
 
 // Turns scores into chances that add up to 1 along one dimension. It stays accurate for very large
