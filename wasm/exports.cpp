@@ -1,10 +1,12 @@
 #include <emscripten/emscripten.h>
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
+#include <random>
 #include <span>
 
 #include "ember/arena.h"
@@ -121,6 +123,117 @@ int RunOpsSelfCheck() {
   return 0;
 }
 
+const float* AttentionFrame(int tokens, int features, float phase) {
+  using ember::Arena;
+  using ember::DType;
+  using ember::Shape;
+  using ember::Tensor;
+
+  constexpr int kMaxSide = 128;
+  if (tokens < 1 || tokens > kMaxSide || features < 1 || features > kMaxSide) return nullptr;
+  const auto token_count = static_cast<std::size_t>(tokens);
+  const auto feature_count = static_cast<std::size_t>(features);
+
+  static Arena arena;
+  static const Arena::Mark start = arena.mark();
+  arena.Rewind(start);
+
+  const auto shape = Shape::Make({token_count, feature_count});
+  const auto scores_shape = Shape::Make({token_count, token_count});
+  if (!shape.ok() || !scores_shape.ok()) return nullptr;
+  const auto queries = Tensor::Uninitialized(arena, DType::kF32, *shape);
+  const auto keys = Tensor::Uninitialized(arena, DType::kF32, *shape);
+  const auto scores = Tensor::Uninitialized(arena, DType::kF32, *scores_shape);
+  if (!queries.ok() || !keys.ok() || !scores.ok()) return nullptr;
+
+  for (std::size_t t = 0; t < token_count; ++t) {
+    for (std::size_t f = 0; f < feature_count; ++f) {
+      const auto tf = static_cast<float>(t);
+      const auto ff = static_cast<float>(f);
+      queries->at<float>(t, f) =
+          std::sin(0.31F * (tf + 1.0F) * (ff + 1.0F) / 3.0F + phase * (0.5F + 0.07F * ff));
+      keys->at<float>(t, f) =
+          std::cos(0.23F * (tf + 1.0F) * (ff + 2.0F) / 3.0F - phase * (0.4F + 0.05F * ff));
+    }
+  }
+
+  const auto flipped = keys->Transpose(0, 1);
+  if (!flipped.ok()) return nullptr;
+  const auto copied = Tensor::CopyOf(arena, *flipped);
+  if (!copied.ok()) return nullptr;
+  if (!ember::MatMul(*queries, *copied, *scores).ok()) return nullptr;
+
+  // Sharper than the 1 / sqrt(features) in real attention, so the grid shows more contrast.
+  const float sharpen = 4.0F / std::sqrt(static_cast<float>(features));
+  if (!ember::Scale(*scores, sharpen, *scores).ok()) return nullptr;
+  const float hidden = -std::numeric_limits<float>::infinity();
+  for (std::size_t t = 0; t < token_count; ++t) {
+    for (std::size_t later = t + 1; later < token_count; ++later) {
+      scores->at<float>(t, later) = hidden;
+    }
+  }
+  if (!ember::Softmax(*scores, 1, *scores).ok()) return nullptr;
+  return scores->data<float>();
+}
+
+int SoftmaxRowForPage(const float* logits, float* out, int count) {
+  using ember::DType;
+  using ember::Shape;
+  using ember::Tensor;
+  using ember::TensorView;
+
+  if (count < 1) return 1;
+  const auto shape = Shape::Make({static_cast<std::size_t>(count)});
+  if (!shape.ok()) return 1;
+  const auto input = TensorView::Wrap(static_cast<const void*>(logits), DType::kF32, *shape);
+  const auto output = Tensor::Wrap(out, DType::kF32, *shape);
+  if (!input.ok() || !output.ok()) return 1;
+  return ember::Softmax(*input, 0, *output).ok() ? 0 : 1;
+}
+
+float MatMulBench(int size, int calls) {
+  using ember::Arena;
+  using ember::DType;
+  using ember::Shape;
+  using ember::Tensor;
+
+  const float failed = std::numeric_limits<float>::quiet_NaN();
+  constexpr int kMaxSize = 2048;
+  if (size < 1 || size > kMaxSize || calls < 1) return failed;
+
+  static Arena arena;
+  static const Arena::Mark start = arena.mark();
+  static int prepared_size = 0;
+  static Tensor a;
+  static Tensor b;
+  static Tensor out;
+  if (size != prepared_size) {
+    prepared_size = 0;
+    arena.Rewind(start);
+    const auto side = static_cast<std::size_t>(size);
+    const auto shape = Shape::Make({side, side});
+    if (!shape.ok()) return failed;
+    const auto made_a = Tensor::Uninitialized(arena, DType::kF32, *shape);
+    const auto made_b = Tensor::Uninitialized(arena, DType::kF32, *shape);
+    const auto made_out = Tensor::Uninitialized(arena, DType::kF32, *shape);
+    if (!made_a.ok() || !made_b.ok() || !made_out.ok()) return failed;
+    a = *made_a;
+    b = *made_b;
+    out = *made_out;
+    std::mt19937 random(12345);
+    std::uniform_real_distribution<float> value(-1.0F, 1.0F);
+    for (std::size_t i = 0; i < a.element_count(); ++i) {
+      a.data<float>()[i] = value(random);
+      b.data<float>()[i] = value(random);
+    }
+    prepared_size = size;
+  }
+  for (int call = 0; call < calls; ++call) {
+    if (!ember::MatMul(a, b, out).ok()) return failed;
+  }
+  return out.data<float>()[0];
+}
+
 }  // namespace
 
 extern "C" {
@@ -130,5 +243,24 @@ EMSCRIPTEN_KEEPALIVE const char* ember_version() { return ember::version(); }
 EMSCRIPTEN_KEEPALIVE int ember_memory_self_check() { return RunMemorySelfCheck(); }
 
 EMSCRIPTEN_KEEPALIVE int ember_ops_self_check() { return RunOpsSelfCheck(); }
+
+// One frame of the website's coal grid. It makes up queries and keys from sines, so no model is
+// involved, then runs them through what attention will do: copy the transposed keys, MatMul, scale,
+// hide the future with negative infinity, and Softmax each row. Returns tokens x tokens floats, row
+// by row, valid until the next call, or null on bad sizes or an engine error.
+EMSCRIPTEN_KEEPALIVE const float* ember_attention_frame(int tokens, int features, float phase) {
+  return AttentionFrame(tokens, features, phase);
+}
+
+// Softmax of one row from the page. Returns 0, or 1 if the engine refused the row.
+EMSCRIPTEN_KEEPALIVE int ember_softmax_row(const float* logits, float* out, int count) {
+  return SoftmaxRowForPage(logits, out, count);
+}
+
+// Multiplies two random size x size matrices `calls` times, for the page to time. Returns one
+// element of the answer, so the work cannot be thrown away, or NaN on bad sizes or an engine error.
+EMSCRIPTEN_KEEPALIVE float ember_matmul_bench(int size, int calls) {
+  return MatMulBench(size, calls);
+}
 
 }  // extern "C"
