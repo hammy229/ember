@@ -23,6 +23,39 @@ Status RequireContiguousF32(const TensorView& tensor, std::size_t rank, std::str
   return Status::Ok();
 }
 
+// Four floats in one SIMD register: NEON on ARM, SSE on x86, and simd128 in WebAssembly when it is
+// turned on (plain scalar code otherwise). GCC and clang both understand this without intrinsics.
+using Float4 = float __attribute__((vector_size(16)));
+
+Float4 Load4(const float* from) {
+  Float4 value;
+  std::memcpy(&value, from, sizeof(value));
+  return value;
+}
+
+// One row of x [in] against every weight row, into out [features]. Each dot product keeps eight
+// running totals in two registers instead of one total, so the additions do not all wait on each
+// other. That changes the rounding slightly, the way any fast matrix library does. Left to the
+// compiler's auto-vectorizer, small rewrites of this loop swung its speed by more than half, so the
+// registers are spelled out. docs/results has the before and after.
+void LinearRow(const float* x, const float* weights, std::size_t in, std::size_t features,
+               float* out) {
+  for (std::size_t f = 0; f < features; ++f) {
+    const float* const w = weights + f * in;
+    Float4 low{};
+    Float4 high{};
+    std::size_t k = 0;
+    for (; k + 8 <= in; k += 8) {
+      low += Load4(x + k) * Load4(w + k);
+      high += Load4(x + k + 4) * Load4(w + k + 4);
+    }
+    float total =
+        ((low[0] + low[1]) + (low[2] + low[3])) + ((high[0] + high[1]) + (high[2] + high[3]));
+    for (; k < in; ++k) total += x[k] * w[k];
+    out[f] = total;
+  }
+}
+
 Status RefuseOverlap(const TensorView& input, const TensorView& out, std::string_view op) {
   if (!MemoryRangesIntersect(input, out)) return Status::Ok();
   return Status::InvalidArgument(std::string(op) +
@@ -53,24 +86,8 @@ Status Linear(const TensorView& x, const TensorView& weight, const Tensor& out) 
   const float* const xs = x.data<float>();
   const float* const ws = weight.data<float>();
   float* const to = out.data<float>();
-  for (std::size_t r = 0; r < rows; ++r) {
-    const float* const row = xs + r * in;
-    for (std::size_t f = 0; f < features; ++f) {
-      const float* const w = ws + f * in;
-      // Eight running totals instead of one, so the additions do not all wait on each other and
-      // the compiler can keep them in one SIMD register. It changes the rounding slightly, the way
-      // any fast matrix library does.
-      float sums[8] = {};
-      std::size_t k = 0;
-      for (; k + 8 <= in; k += 8) {
-        for (std::size_t lane = 0; lane < 8; ++lane) sums[lane] += row[k + lane] * w[k + lane];
-      }
-      float total =
-          ((sums[0] + sums[1]) + (sums[2] + sums[3])) + ((sums[4] + sums[5]) + (sums[6] + sums[7]));
-      for (; k < in; ++k) total += row[k] * w[k];
-      to[r * features + f] = total;
-    }
-  }
+  for (std::size_t r = 0; r < rows; ++r)
+    LinearRow(xs + r * in, ws, in, features, to + r * features);
   return Status::Ok();
 }
 
