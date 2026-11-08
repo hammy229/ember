@@ -89,6 +89,9 @@ target_link_libraries(ember_bench PRIVATE ember ember_warnings)
 add_executable(ember_bench_ops tools/ember_bench_ops.cpp)
 target_link_libraries(ember_bench_ops PRIVATE ember ember_warnings)
 
+add_executable(ember_bench_model tools/ember_bench_model.cpp)
+target_link_libraries(ember_bench_model PRIVATE ember ember_warnings)
+
 if(EMBER_BUILD_TESTS)
   include(FetchContent)
   FetchContent_Declare(
@@ -141,6 +144,9 @@ if(EMBER_BUILD_TESTS)
 
   add_test(NAME cli_logits_rejects_a_bad_token_id COMMAND ember_cli logits /no/model 1 x)
   set_tests_properties(cli_logits_rejects_a_bad_token_id PROPERTIES PASS_REGULAR_EXPRESSION "usage:")
+
+  add_test(NAME bench_model_rejects_bad_repeats COMMAND ember_bench_model /no/model 0)
+  set_tests_properties(bench_model_rejects_bad_repeats PROPERTIES PASS_REGULAR_EXPRESSION "usage:")
 
   add_test(NAME bench_runs COMMAND ember_bench 1 1000)
   set_tests_properties(bench_runs PROPERTIES PASS_REGULAR_EXPRESSION "median")
