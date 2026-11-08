@@ -2,8 +2,9 @@
 # Produces every number Ember claims, in one run, and saves them with the machine and commit that
 # produced them. Nothing goes in the README or on the site unless it came out of this script.
 #
-#   ./scripts/results.sh            writes docs/results/<date>-<cpu>.md
-#   ./scripts/results.sh --print    prints the report instead of saving it
+#   ./scripts/results.sh                   writes docs/results/<date>-<cpu>.md
+#   ./scripts/results.sh --print           prints the report instead of saving it
+#   ./scripts/results.sh --before COMMIT   also times the model at an older commit, side by side
 #
 # Needs CMake, Ninja, a C++20 compiler, Python 3 with NumPy, and clang's coverage tools.
 set -euo pipefail
@@ -12,7 +13,35 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 model="models/tinyllama-15M"
 scratch="$(mktemp -d)"
-trap 'rm -rf "$scratch"' EXIT
+print=false
+before=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --print) print=true ;;
+    --before)
+      before="$(git rev-parse --short "$2")"
+      shift
+      ;;
+    *)
+      echo "usage: scripts/results.sh [--print] [--before COMMIT]" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+cleanup() {
+  [[ -z "$before" ]] || git worktree remove --force "$scratch/before" 2>/dev/null || true
+  rm -rf "$scratch"
+}
+trap cleanup EXIT
+
+# The older commit is built in a separate worktree, so the working tree is never touched.
+if [[ -n "$before" ]]; then
+  git worktree add --detach "$scratch/before" "$before" >/dev/null 2>&1
+  cmake -S "$scratch/before" -B "$scratch/before/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DEMBER_BUILD_TESTS=OFF >/dev/null
+  cmake --build "$scratch/before/build" --target ember_bench_model >/dev/null
+fi
 
 ./scripts/fetch-model.sh >/dev/null
 cmake --preset release >/dev/null && cmake --build --preset release >/dev/null
@@ -86,6 +115,14 @@ report() {
   ./build/release/ember_bench_model "$model" 10
   echo '```'
   echo
+  if [[ -n "$before" ]]; then
+    echo "## 2b. The same benchmark at commit $before, built the same way"
+    echo
+    echo '```'
+    "$scratch/before/build/ember_bench_model" "$model" 10
+    echo '```'
+    echo
+  fi
   echo "## 3. Baseline: the same model in NumPy at 128 tokens"
   echo
   echo "NumPy hands matrix products to the system BLAS, a library tuned by hand for this CPU."
@@ -108,7 +145,7 @@ report() {
   echo '```'
 }
 
-if [[ "${1:-}" == "--print" ]]; then
+if $print; then
   report
 else
   slug="$(echo "$cpu" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/-$//')"
