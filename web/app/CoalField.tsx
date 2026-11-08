@@ -13,13 +13,13 @@ const SLOW_DRAW_MS = 10;
 const FRAMES_PER_SAMPLE = 30;
 const READOUT_EVERY_FRAMES = 6;
 
-// Dark coal to white heat, one family of hues, so brightness alone reads as size.
+// Cold ash to charred ember, one family of hues, so on a light page darkness alone reads as size.
 const RAMP: [number, [number, number, number]][] = [
-  [0, [38, 29, 24]],
-  [0.25, [92, 30, 14]],
-  [0.55, [194, 65, 12]],
-  [0.8, [255, 107, 44]],
-  [1, [255, 214, 150]],
+  [0, [236, 230, 221]],
+  [0.3, [246, 199, 165]],
+  [0.6, [239, 122, 58]],
+  [0.85, [194, 65, 12]],
+  [1, [124, 45, 18]],
 ];
 
 function buildLookup(): string[] {
@@ -121,7 +121,7 @@ export function CoalField() {
       const gap = Math.max(1, pitch * 0.09);
       const cell = pitch - gap;
       const corner = Math.min(cell * 0.18, 3);
-      context.shadowColor = "rgba(255, 107, 44, 0.75)";
+      context.shadowColor = "rgba(194, 65, 12, 0.3)";
       for (let row = 0; row < TOKENS; row += 1) {
         let hottest = 0;
         if (grid) {
@@ -151,7 +151,7 @@ export function CoalField() {
       const chosen = selected.current;
       if (chosen) {
         const line = Math.max(1.5, pitch * 0.09);
-        context.strokeStyle = "#ede5d8";
+        context.strokeStyle = "#1c1917";
         context.lineWidth = line;
         context.strokeRect(
           chosen.column * pitch - line / 2,
@@ -308,7 +308,7 @@ export function CoalField() {
         </p>
         <p>
           Made-up queries and keys through the real <code>MatMul</code> and <code>Softmax</code>,
-          with each row brightened to its own hottest cell.
+          with each row scaled to its own hottest cell.
         </p>
         <div className="coal-readout">
           <p className="coal-status" role="status">

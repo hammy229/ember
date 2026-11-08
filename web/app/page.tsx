@@ -16,9 +16,9 @@ const SLOWEST = Math.max(...PRODUCT_TIMES.map((row) => row.ms));
 // From docs/results/2026-11-08-apple-m4.md, made by scripts/results.sh. Median of the runs, one
 // forward pass of 128 tokens through the 15M parameter TinyStories Llama, Apple M4.
 const MODEL_TIMES = [
-  { name: "NumPy with Apple's tuned BLAS", ms: 21.03 },
-  { name: "Ember, SIMD spelled out", ms: 158.14 },
-  { name: "Ember, one commit earlier", ms: 259.32 },
+  { name: "NumPy with Apple's tuned BLAS", ms: 21.03, baseline: true },
+  { name: "Ember, SIMD spelled out", ms: 158.14, baseline: false },
+  { name: "Ember, one commit earlier", ms: 259.32, baseline: false },
 ];
 const MODEL_SLOWEST = Math.max(...MODEL_TIMES.map((row) => row.ms));
 
@@ -154,7 +154,7 @@ export default function Home() {
                   <dt>{row.name}</dt>
                   <dd>
                     <span
-                      className="bar"
+                      className={row.baseline ? "bar is-baseline" : "bar"}
                       style={{ width: `calc((100% - 76px) * ${row.ms / MODEL_SLOWEST})` }}
                     />
                     <span className="bar-value">{row.ms.toFixed(0)} ms</span>

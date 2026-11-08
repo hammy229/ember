@@ -113,7 +113,7 @@ export function SoftmaxLab() {
                 <span
                   style={{
                     transform: `scaleX(${chance})`,
-                    background: `color-mix(in oklab, var(--ember-deep), var(--ember-hot) ${Math.round(chance * 100)}%)`,
+                    background: `color-mix(in oklab, var(--ember), var(--ember-strong) ${Math.round(chance * 100)}%)`,
                   }}
                 />
               </span>
