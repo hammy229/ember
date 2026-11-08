@@ -30,6 +30,7 @@ add_library(ember STATIC
   src/arena.cpp
   src/check.cpp
   src/f16.cpp
+  src/mapped_file.cpp
   src/ops.cpp
   src/shape.cpp
   src/status.cpp
@@ -82,6 +83,7 @@ if(EMBER_BUILD_TESTS)
     tests/check_test.cpp
     tests/dtype_test.cpp
     tests/f16_test.cpp
+    tests/mapped_file_test.cpp
     tests/ops_test.cpp
     tests/shape_test.cpp
     tests/status_or_test.cpp
