@@ -11,8 +11,8 @@ Ember is an LLM inference engine written from scratch in C++20, with no ML frame
 | Wed, Nov 4 | Repo, build presets, tests, CI, WebAssembly build, site skeleton | Done |
 | Thu, Nov 5 | Tensors and memory allocator | Done |
 | Fri, Nov 6 | Matrix operations, softmax, first benchmark | Done |
-| Sat, Nov 7 | Load model weights with memory mapping (15 MB tiny model), fuzz the loader against corrupt files | |
-| Sun, Nov 8 | Attention and the full forward pass | |
+| Sat, Nov 7 | Load model weights with memory mapping (15M parameter tiny model), fuzz the loader against corrupt files | Done |
+| Sun, Nov 8 | Attention and the full forward pass | Done |
 | Mon, Nov 9 | **Milestone 1: logits match Hugging Face**, checked in CI from a saved reference | |
 | Tue, Nov 10 | Tokenizer, sampling, KV cache, text generation | |
 | Wed, Nov 11 | **Milestone 2: text generation in the browser**, first private site | |
