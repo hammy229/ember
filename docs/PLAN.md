@@ -2,7 +2,7 @@
 
 Ember is an LLM inference engine written from scratch in C++20, with no ML framework. It runs natively and in the browser through WebAssembly.
 
-**Nov 19 is demo day, resume update day, and publish day.** The repo and site stay private until then.
+**Nov 19 is demo day, resume update day, and the day the site goes live.** The repo went public early, on Nov 8.
 
 ## Timeline
 

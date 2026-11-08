@@ -16,7 +16,7 @@ C++20 LLM inference engine with no ML framework, plus a Next.js site in `web/` t
 
 ## Rules
 
-- The repo and site stay private until Nov 19, 2026.
+- The repo has been public since Nov 8, 2026. The site is not deployed yet; that and the demo are Nov 19.
 - Never commit model weights or patient data.
 - Never put a number on the site or in docs unless it was measured by a script in this repo.
 - No em or en dashes in written copy.
