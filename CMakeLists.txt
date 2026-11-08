@@ -39,6 +39,7 @@ add_library(ember STATIC
   src/arena.cpp
   src/check.cpp
   src/f16.cpp
+  src/forward.cpp
   src/json.cpp
   src/layers.cpp
   src/llama.cpp
@@ -106,6 +107,7 @@ if(EMBER_BUILD_TESTS)
     tests/check_test.cpp
     tests/dtype_test.cpp
     tests/f16_test.cpp
+    tests/forward_test.cpp
     tests/json_test.cpp
     tests/layers_test.cpp
     tests/llama_load_test.cpp
