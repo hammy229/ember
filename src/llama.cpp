@@ -25,10 +25,19 @@ Status BadConfig(std::string_view what) {
   return Status::InvalidFormat("config.json: " + std::string(what));
 }
 
-// A size field, which must be a whole number from 1 to `limit`. The limits are far above any real
-// model and keep every later product of sizes well inside a size_t, even on 32-bit WebAssembly.
-StatusOr<std::size_t> ReadSize(const Json& config, std::string_view key, std::size_t limit) {
+// A field, or null if it is missing or written as null. Hugging Face treats the two the same, as
+// "use the default".
+const Json* Present(const Json& config, std::string_view key) {
   const Json* value = config.Find(key);
+  return value == nullptr || value->is_null() ? nullptr : value;
+}
+
+// A size field, which must be a whole number from 1 to `limit`. The limits are far above any real
+// model. They do not keep every product of sizes inside a size_t (vocab times hidden can reach
+// 2^36), but Shape::Make refuses any tensor that big when the weights are bound, so a huge config
+// fails there with a clear error instead of overflowing.
+StatusOr<std::size_t> ReadSize(const Json& config, std::string_view key, std::size_t limit) {
+  const Json* value = Present(config, key);
   if (value == nullptr) return BadConfig("missing " + std::string(key));
   const std::optional<std::uint64_t> exact = value->as_uint64();
   if (!exact || *exact == 0 || *exact > limit) {
@@ -39,7 +48,7 @@ StatusOr<std::size_t> ReadSize(const Json& config, std::string_view key, std::si
 }
 
 StatusOr<float> ReadPositive(const Json& config, std::string_view key, float fallback) {
-  const Json* value = config.Find(key);
+  const Json* value = Present(config, key);
   if (value == nullptr) return fallback;
   if (!value->is_number()) return BadConfig(std::string(key) + " must be a number");
   const auto number = static_cast<float>(value->as_number());
@@ -53,6 +62,43 @@ Status RequireString(const Json& config, std::string_view key, std::string_view 
     return BadConfig(std::string(key) + " must be \"" + std::string(expected) + "\"");
   }
   return Status::Ok();
+}
+
+// RoPE settings. Older configs say rope_theta and rope_scaling at the top level. Newer ones put
+// both in rope_parameters, and a config that set the base there but was read the old way would run
+// with the default base and give fluent-looking garbage. So both places are read, and anything but
+// plain RoPE is refused: scaled variants change the math and Ember does not do them yet.
+StatusOr<float> ReadRope(const Json& config) {
+  const Json* scaling = Present(config, "rope_scaling");
+  const Json* parameters = Present(config, "rope_parameters");
+  if (scaling != nullptr && parameters != nullptr) {
+    return BadConfig("give rope_scaling or rope_parameters, not both");
+  }
+  const Json* rope = scaling != nullptr ? scaling : parameters;
+  float theta = 10000.0F;
+  if (Present(config, "rope_theta") != nullptr) {
+    EMBER_ASSIGN_OR_RETURN(theta, ReadPositive(config, "rope_theta", theta));
+  }
+  if (rope == nullptr) return theta;
+  if (!rope->is_object()) return BadConfig("rope settings must be an object");
+  for (std::size_t i = 0; i < rope->size(); ++i) {
+    const std::string& key = rope->keys()[i];
+    const Json& value = rope->items()[i];
+    if (key == "rope_type" || key == "type") {
+      if (!value.is_string() || value.as_string() != "default") {
+        return BadConfig("only plain RoPE is supported, not rope_type " +
+                         (value.is_string() ? value.as_string() : std::string("?")));
+      }
+    } else if (key == "rope_theta") {
+      if (Present(config, "rope_theta") != nullptr) {
+        return BadConfig("rope_theta is given twice");
+      }
+      EMBER_ASSIGN_OR_RETURN(theta, ReadPositive(*rope, "rope_theta", theta));
+    } else {
+      return BadConfig("rope setting " + key + " is not supported");
+    }
+  }
+  return theta;
 }
 
 constexpr std::size_t kMaxVocab = std::size_t{1} << 20;
@@ -70,14 +116,11 @@ StatusOr<LlamaConfig> LlamaConfig::FromJson(std::string_view json_text) {
   if (!json.is_object()) return BadConfig("not a JSON object");
 
   EMBER_RETURN_IF_ERROR(RequireString(json, "model_type", "llama"));
-  if (const Json* act = json.Find("hidden_act"); act != nullptr) {
+  if (Present(json, "hidden_act") != nullptr) {
     EMBER_RETURN_IF_ERROR(RequireString(json, "hidden_act", "silu"));
   }
-  if (const Json* scaling = json.Find("rope_scaling"); scaling != nullptr && !scaling->is_null()) {
-    return BadConfig("rope_scaling is not supported");
-  }
   for (const std::string_view key : {"attention_bias", "mlp_bias"}) {
-    const Json* bias = json.Find(key);
+    const Json* bias = Present(json, key);
     if (bias != nullptr && !(bias->is_bool() && !bias->as_bool())) {
       return BadConfig(std::string(key) + " is not supported");
     }
@@ -91,10 +134,10 @@ StatusOr<LlamaConfig> LlamaConfig::FromJson(std::string_view json_text) {
   EMBER_ASSIGN_OR_RETURN(config.layer_count, ReadSize(json, "num_hidden_layers", kMaxLayers));
   EMBER_ASSIGN_OR_RETURN(config.head_count, ReadSize(json, "num_attention_heads", kMaxHeads));
   config.kv_head_count = config.head_count;
-  if (json.Find("num_key_value_heads") != nullptr) {
+  if (Present(json, "num_key_value_heads") != nullptr) {
     EMBER_ASSIGN_OR_RETURN(config.kv_head_count, ReadSize(json, "num_key_value_heads", kMaxHeads));
   }
-  if (json.Find("head_dim") != nullptr) {
+  if (Present(json, "head_dim") != nullptr) {
     EMBER_ASSIGN_OR_RETURN(config.head_dim, ReadSize(json, "head_dim", kMaxWidth));
   } else {
     if (config.hidden_size % config.head_count != 0) {
@@ -102,12 +145,16 @@ StatusOr<LlamaConfig> LlamaConfig::FromJson(std::string_view json_text) {
     }
     config.head_dim = config.hidden_size / config.head_count;
   }
-  EMBER_ASSIGN_OR_RETURN(config.max_positions,
-                         ReadSize(json, "max_position_embeddings", kMaxPositions));
+  // Hugging Face's LlamaConfig defaults, for fields an old config leaves out.
+  config.max_positions = 2048;
+  if (Present(json, "max_position_embeddings") != nullptr) {
+    EMBER_ASSIGN_OR_RETURN(config.max_positions,
+                           ReadSize(json, "max_position_embeddings", kMaxPositions));
+  }
   EMBER_ASSIGN_OR_RETURN(config.rms_norm_eps, ReadPositive(json, "rms_norm_eps", 1e-6F));
-  EMBER_ASSIGN_OR_RETURN(config.rope_theta, ReadPositive(json, "rope_theta", 10000.0F));
+  EMBER_ASSIGN_OR_RETURN(config.rope_theta, ReadRope(json));
 
-  if (const Json* tie = json.Find("tie_word_embeddings"); tie != nullptr) {
+  if (const Json* tie = Present(json, "tie_word_embeddings"); tie != nullptr) {
     if (!tie->is_bool()) return BadConfig("tie_word_embeddings must be true or false");
     config.tie_word_embeddings = tie->as_bool();
   }

@@ -85,6 +85,34 @@ TEST(LlamaConfig, RefusesWhatItCannotRunExactly) {
   EXPECT_TRUE(Refused(With(R"("tie_word_embeddings": 1)")));
 }
 
+TEST(LlamaConfig, ReadsRopeFromEitherPlace) {
+  const auto old_style = LlamaConfig::FromJson(With(R"("rope_theta": 500000.0)"));
+  ASSERT_TRUE(old_style.ok()) << old_style.status().ToString();
+  EXPECT_EQ(old_style->rope_theta, 500000.0F);
+
+  // The newer layout, with no top-level rope_theta.
+  std::string config = TinyLlamaConfig({});
+  config.replace(config.find(R"("rope_theta": 10000.0, )"), 22, "");
+  config.replace(config.find(R"("rope_scaling": null)"), 20,
+                 R"("rope_parameters": {"rope_type": "default", "rope_theta": 500000.0})");
+  const auto new_style = LlamaConfig::FromJson(config);
+  ASSERT_TRUE(new_style.ok()) << new_style.status().ToString();
+  EXPECT_EQ(new_style->rope_theta, 500000.0F);
+
+  EXPECT_TRUE(Refused(With(R"("rope_scaling": {"rope_type": "llama3", "factor": 8.0})")));
+  EXPECT_TRUE(Refused(With(R"("rope_scaling": {"rope_type": "default", "rope_theta": 5.0})")));
+  EXPECT_FALSE(Refused(With(R"("rope_scaling": {"rope_type": "default"})")));
+}
+
+TEST(LlamaConfig, TreatsNullAsTheDefault) {
+  const auto config = LlamaConfig::FromJson(With(R"("num_key_value_heads": null)"));
+  ASSERT_TRUE(config.ok()) << config.status().ToString();
+  EXPECT_EQ(config->kv_head_count, config->head_count);
+  const auto no_context = LlamaConfig::FromJson(With(R"("max_position_embeddings": null)"));
+  ASSERT_TRUE(no_context.ok()) << no_context.status().ToString();
+  EXPECT_EQ(no_context->max_positions, 2048U);
+}
+
 TEST(LlamaConfig, AllowsGroupedQueryAttentionAndAnExplicitHeadDim) {
   const auto grouped = LlamaConfig::FromJson(With(R"("num_key_value_heads": 1)"));
   ASSERT_TRUE(grouped.ok()) << grouped.status().ToString();
