@@ -1,24 +1,13 @@
 # Ember
 
-An LLM inference engine written from scratch in C++20, with no ML framework. It runs natively and in the browser through WebAssembly.
+**An LLM inference engine written from scratch in C++20, with no ML framework. It loads real Llama models from Hugging Face, runs them on a laptop, and compiles to WebAssembly for the browser.**
+
+[![CI](https://github.com/hammy229/ember/actions/workflows/ci.yml/badge.svg)](https://github.com/hammy229/ember/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ![Ember's site: a triangular grid of coals from pale ash to deep ember, each one an attention weight the engine is computing live in the browser](docs/screenshots/home.png)
 
-The grid is not an animation. The browser is running made-up queries and keys through the real `MatMul` and `Softmax`, compiled from C++, and each coal shows its real value on hover.
-
-![Softmax with 1000 added to every score: the chances hold, because Ember subtracts each row's largest score before calling exp](docs/screenshots/softmax.png)
-
-Visitors can drag the scores and try to break it. Adding 1000 to every score would overflow the plain formula into NaN, and hiding every word makes the engine return an error rather than an answer.
-
-![Benchmark section: MatMul at 65 ms against 828 ms for textbook loops at 1024 x 1024, then a table timing the engine in the visitor's browser](docs/screenshots/speed.png)
-
-The bars come from [one saved run of `scripts/bench.sh`](docs/benchmarks/2026-11-06-m4.txt). The orange column is measured live in whatever browser opens the page, and here that was Chrome on an Apple M4.
-
-![Model section: logits within 4.2e-5 of a separate Llama, 815 tokens a second, and a bar chart where NumPy runs 128 tokens in 21 ms against Ember's 158 ms](docs/screenshots/model.png)
-
-The real-model results, with the baseline Ember still loses to drawn in slate. They come from [the saved results run](docs/results/2026-11-08-apple-m4.md).
-
-**Status:** Ember loads a real Llama model from Hugging Face's safetensors format and runs the full forward pass from token ids to logits. On the 15M parameter TinyStories model its logits agree with a separate NumPy Llama to within 4.2e-5, and after "Once upon a time" it picks a comma. The numbers are in [Results](#results). It has no tokenizer or KV cache yet, so it does not generate text. The loader treats model files as untrusted and is fuzzed in CI. See [the plan](docs/PLAN.md), [how memory works](docs/memory.md), [how the math works](docs/ops.md), [how loading works](docs/loader.md), and [how the forward pass works](docs/forward.md).
+The grid is not an animation. The browser is running queries and keys through the real `MatMul` and `Softmax`, compiled from C++, and each coal shows its value on hover.
 
 ## Results
 
@@ -33,7 +22,9 @@ Every number here comes from one run of [`scripts/results.sh`](scripts/results.s
 | Bad input cannot crash it | Every truncation and thousands of corrupted headers fail cleanly under AddressSanitizer, and libFuzzer runs on every push | `tests/loader_corruption_test.cpp`, `fuzz/`, CI |
 | The tests reach the code | 326 tests, covering 97.8% of lines and 86.0% of branches in `src/` | `scripts/coverage.sh` |
 
-The gap to NumPy is the to-do list: hand-written NEON kernels, more than one thread, and 8-bit weights are on [the plan](docs/PLAN.md), each with a before and after from the same script.
+![Model section of the site: logits within 4.2e-5 of a separate Llama, 815 tokens a second, and a bar chart where NumPy runs 128 tokens in 21 ms against Ember's 158 ms](docs/screenshots/model.png)
+
+The gap to NumPy is the to-do list: hand-written NEON kernels, more than one thread, and 8-bit weights, each with a before and after from the same script.
 
 ## Why it matters
 
@@ -41,55 +32,87 @@ Most people who use a language model send their words to someone else's server. 
 
 Doing that well is mostly engineering: loading weights safely from files nobody checked, getting the math exactly right, fitting in a browser's memory, and making it fast without guessing. Ember is a from-scratch attempt at all of it, with the evidence in the repo.
 
-## How it is engineered
+## How it works
 
-| What to look for | Where it is |
+1. **Load.** `MappedFile` maps `model.safetensors` read-only. A strict JSON parser reads the header, every offset and shape is checked, and f16 or bf16 weights are widened to f32 exactly. ([docs/loader.md](docs/loader.md))
+2. **Allocate.** One arena per forward pass hands out scratch memory by moving a pointer, and scoped marks give it all back at once. ([docs/memory.md](docs/memory.md))
+3. **Compute.** Embedding, then per layer RMS norm, attention with RoPE and grouped-query heads, and a SwiGLU MLP, then the output layer. Each op follows Hugging Face's Llama code step by step, including where it rounds. ([docs/forward.md](docs/forward.md), [docs/ops.md](docs/ops.md))
+4. **Run anywhere.** The same C++ compiles natively and to WebAssembly, and the site calls it from the browser.
+
+Design choices that matter:
+
+| Choice | Why |
 |---|---|
-| Modern C++ without exceptions | `Status` and `StatusOr` for every failure, `[[nodiscard]]`, `std::span`, concepts, RAII for mapped files and arenas |
-| Memory you can reason about | One arena per forward pass, scoped scratch that frees itself, no allocation per op ([docs/memory.md](docs/memory.md)) |
-| Treating input as hostile | Bounds, overflow, alignment, and overlap checks on every file and tensor ([docs/loader.md](docs/loader.md)) |
-| Testing beyond happy paths | Reference implementations, property tests, corruption tests, fuzzing, and mutation checks that a broken RoPE, scale, or mask fails the suite ([docs/forward.md](docs/forward.md)) |
-| CI that means something | Format check, release and AddressSanitizer plus UBSan builds, fuzzing, the WebAssembly build, and the site, on every push |
-| Performance with receipts | Benchmarks that refuse debug builds, record the machine, and compare commits ([docs/ops.md](docs/ops.md), [docs/results](docs/results)) |
-| Writing it down | A design doc per layer, explaining what was chosen, what it cost, and what was measured |
+| `Status` and `StatusOr` instead of exceptions | Every failure is a value the caller must handle, and ignoring one is a compile error |
+| Read-only `TensorView` for weights | Writing to a mapped weight would crash, so it does not compile |
+| Overlap checks on every op | Writing over an input you are still reading gives a silent wrong answer, so it is refused |
+| Copy transposed keys before `MatMul` | Measured 11.7x faster at 1024 x 1024 than reading them sideways ([docs/ops.md](docs/ops.md)) |
+| Explicit SIMD vector types in `Linear` | Small rewrites swung the auto-vectorizer's speed by more than half, so the registers are spelled out |
 
-## Build
+![Softmax with 1000 added to every score: the chances hold, because Ember subtracts each row's largest score before calling exp](docs/screenshots/softmax.png)
+
+On the site, visitors can drag the softmax scores and try to break it. Adding 1000 to every score would overflow the plain formula into NaN, and hiding every word makes the engine return an error rather than an answer.
+
+## Tech stack
+
+C++20, CMake and Ninja, GoogleTest, libFuzzer, AddressSanitizer and UBSan, clang source coverage, Emscripten (WebAssembly), Next.js and TypeScript for the site, Python and NumPy for the reference checks, GitHub Actions on Linux and macOS.
+
+## Getting started
 
 You need CMake 3.24+, Ninja, and a C++20 compiler.
 
 ```sh
-cmake --preset debug
-cmake --build --preset debug
-ctest --preset debug
-./build/debug/ember
-```
-
-Use the `sanitize` preset to run the tests with AddressSanitizer and UBSan, `release` for an optimized build, or `fuzz` for the libFuzzer targets ([docs/loader.md](docs/loader.md) says how).
-
-To use Ember inside another CMake project, add it with `add_subdirectory`. Its tests and `-Werror` stay off unless you turn on `EMBER_BUILD_TESTS` and `EMBER_WERROR`.
-
-To run a real model, download the 15M parameter test model (it goes in `models/`, which git ignores) and ask for the likeliest next tokens:
-
-```sh
-./scripts/fetch-model.sh
 cmake --preset release && cmake --build --preset release
+./scripts/fetch-model.sh                       # 15M parameter test model into models/, which git ignores
 ./build/release/ember inspect models/tinyllama-15M
-./build/release/ember logits models/tinyllama-15M 1 9038 2501 263 931
+./build/release/ember logits models/tinyllama-15M 1 9038 2501 263 931   # "Once upon a time"
 ```
 
-`ember_bench [repeats] [elements]` times a placeholder workload and compares the arena to the system allocator on your machine. Use the `release` preset for numbers worth reading.
-
-`./scripts/bench.sh [repeats]` builds the `release` preset, times the math kernels at several sizes, and prints the commit, compiler, flags, and hardware next to the numbers.
-
-## Website
-
-You need Node 24+ and Emscripten. The first command compiles the engine to WebAssembly and copies it into the site.
+The site needs Node 24+ and Emscripten:
 
 ```sh
 ./scripts/build-wasm.sh
-cd web
-npm ci
-npm run dev
+cd web && npm ci && npm run dev
 ```
 
-After building, `node tests/wasm_smoke.mjs` checks that the WebAssembly build loads, reports the right version, passes its 32-bit memory and math checks, and gives the site correct answers.
+To use Ember inside another CMake project, add it with `add_subdirectory`. Its tests and `-Werror` stay off unless you turn on `EMBER_BUILD_TESTS` and `EMBER_WERROR`.
+
+## Project structure
+
+```
+include/ember/   public headers: tensors, arena, ops, layers, loader, forward pass
+src/             the engine
+tests/           GoogleTest suites, reference implementations, corruption tests
+fuzz/            libFuzzer targets for the JSON parser and the whole loader
+tools/           the ember CLI and the benchmarks
+scripts/         fetch the model, benchmark, coverage, results report, reference logits
+wasm/            exports for the WebAssembly build
+web/             the Next.js site
+docs/            one design doc per layer, the plan, saved benchmarks and results
+```
+
+## Testing
+
+```sh
+cmake --preset debug && cmake --build --preset debug && ctest --preset debug
+cmake --preset sanitize && cmake --build --preset sanitize && ctest --preset sanitize
+./scripts/coverage.sh       # line and branch coverage of src/
+./scripts/results.sh        # every number in this README, saved with the machine and commit
+```
+
+CI runs on every push: a clang-format check, release and AddressSanitizer plus UBSan builds with GCC, a release build with Apple clang on macOS, a minute of fuzzing per target, the WebAssembly build with its smoke test, and the site build. The forward pass is checked against a separate double-precision implementation, and breaking RoPE, the attention scale, or the causal mask on purpose makes those tests fail.
+
+![Benchmark section: MatMul at 65 ms against 828 ms for textbook loops at 1024 x 1024, then a table timing the engine in the visitor's browser](docs/screenshots/speed.png)
+
+The bars come from [one saved run of `scripts/bench.sh`](docs/benchmarks/2026-11-06-m4.txt). The orange column is measured live in whatever browser opens the page.
+
+## Limitations and next steps
+
+- No tokenizer or KV cache yet, so it does not generate text. Both are next, then text generation in the browser.
+- One thread, and 7.5x slower than NumPy with Apple's BLAS on the same model.
+- Llama-architecture models in one safetensors file. Llama 3's scaled RoPE is refused rather than run wrong.
+- The dated plan, with what is done and what is next, is in [docs/PLAN.md](docs/PLAN.md).
+
+## License
+
+MIT, see [LICENSE](LICENSE). Built by [Arham Doshi](https://arhamdoshi.dev).
