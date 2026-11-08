@@ -9,12 +9,19 @@ NumPy, not PyTorch.
 This is a cross-check between two implementations written by the same project. The independent
 check against Hugging Face itself is Milestone 1 (docs/PLAN.md, Nov 9).
 
-usage: scripts/reference_logits.py MODEL_DIR LOGITS_FILE TOKEN_ID...
+With --time, it also times its own forward pass, as a baseline for Ember's speed. NumPy hands
+matrix products to the system's BLAS library, which is tuned by hand and may use several threads,
+so set VECLIB_MAXIMUM_THREADS=1 (macOS) or OPENBLAS_NUM_THREADS=1 (Linux) for a one thread
+comparison.
+
+usage: scripts/reference_logits.py [--time] MODEL_DIR LOGITS_FILE TOKEN_ID...
 """
 
 import json
+import statistics
 import struct
 import sys
+import time
 
 import numpy as np
 
@@ -94,14 +101,26 @@ def forward(config, w, tokens):
 
 
 def main():
-    if len(sys.argv) < 4:
+    args = sys.argv[1:]
+    timed = bool(args) and args[0] == "--time"
+    if timed:
+        args = args[1:]
+    if len(args) < 3:
         print(__doc__.strip().splitlines()[-1], file=sys.stderr)
         return 2
-    model_dir, logits_path = sys.argv[1], sys.argv[2]
-    tokens = [int(t) for t in sys.argv[3:]]
+    model_dir, logits_path = args[0], args[1]
+    tokens = [int(t) for t in args[2:]]
     with open(f"{model_dir}/config.json") as f:
         config = json.load(f)
-    expected = forward(config, load_safetensors(f"{model_dir}/model.safetensors"), tokens)
+    weights = load_safetensors(f"{model_dir}/model.safetensors")
+    expected = forward(config, weights, tokens)
+    if timed:
+        samples = []
+        for _ in range(5):
+            start = time.perf_counter()
+            forward(config, weights, tokens)
+            samples.append((time.perf_counter() - start) * 1000)
+        print(f"numpy forward pass median {statistics.median(samples):.2f} ms over 5 runs")
     actual = np.fromfile(logits_path, dtype="<f4").reshape(expected.shape)
 
     vocab = {}
