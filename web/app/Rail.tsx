@@ -6,6 +6,7 @@ const LINKS = [
   { href: "#grid", label: "Live grid" },
   { href: "#softmax", label: "Softmax" },
   { href: "#speed", label: "Speed" },
+  { href: "#model", label: "Model" },
   { href: "#proof", label: "Proof" },
 ];
 

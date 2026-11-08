@@ -13,6 +13,23 @@ const PRODUCT_TIMES = [
 ];
 const SLOWEST = Math.max(...PRODUCT_TIMES.map((row) => row.ms));
 
+// From docs/results/2026-11-08-apple-m4.md, made by scripts/results.sh. Median of the runs, one
+// forward pass of 128 tokens through the 15M parameter TinyStories Llama, Apple M4.
+const MODEL_TIMES = [
+  { name: "NumPy with Apple's tuned BLAS", ms: 21.03 },
+  { name: "Ember, SIMD spelled out", ms: 158.14 },
+  { name: "Ember, one commit earlier", ms: 259.32 },
+];
+const MODEL_SLOWEST = Math.max(...MODEL_TIMES.map((row) => row.ms));
+
+// Same file. Each figure says what produced it.
+const MODEL_FACTS = [
+  { value: "4.2e-5", label: "largest difference from a separate Llama, across all 32,000 logits" },
+  { value: "156 / 156", label: "positions where both pick the same next token" },
+  { value: "815", label: "tokens a second on one thread, with 147 MB for the whole process" },
+  { value: "97.8%", label: "of the engine's lines run by its 326 tests" },
+];
+
 const PROOF = [
   {
     title: "It refuses to be quietly wrong",
@@ -24,7 +41,11 @@ const PROOF = [
   },
   {
     title: "It gets checked against the definition",
-    body: "MatMul runs against a plain product written straight from the formula, at random sizes, through every mix of transposed inputs and outputs. The browser build checks its own answers too.",
+    body: "Every layer and the whole model run against a second version written straight from the formulas. Breaking RoPE, the attention scale, or the causal mask on purpose makes those tests fail, so they catch real bugs.",
+  },
+  {
+    title: "Model files are treated as hostile",
+    body: "A downloaded file can lie about its own sizes. Every truncation of a model and thousands of corrupted headers have to fail cleanly under AddressSanitizer, and a fuzzer attacks the loader on every push.",
   },
 ];
 
@@ -103,6 +124,50 @@ export default function Home() {
             Saved numbers come from one run of the repo&apos;s benchmark script, with no hand-written SIMD
             yet. They are a starting point, not a claim of being fast. No comparison to another engine
             exists yet.
+          </p>
+        </section>
+
+        <section className="band" id="model">
+          <div className="band-wide">
+            <h2>A real model, checked against a second one.</h2>
+            <p className="band-lead">
+              Ember loads a 15M parameter Llama trained on children&apos;s stories and runs it to the
+              last logit. After &ldquo;Once upon a time&rdquo; it picks a comma. A separate Llama
+              written in NumPy agrees with every one of its 32,000 scores.
+            </p>
+          </div>
+
+          <dl className="facts">
+            {MODEL_FACTS.map((fact) => (
+              <div key={fact.value}>
+                <dt>{fact.value}</dt>
+                <dd>{fact.label}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <figure className="bars">
+            <figcaption>One forward pass of 128 tokens, Apple M4, shorter is better</figcaption>
+            <dl>
+              {MODEL_TIMES.map((row) => (
+                <div key={row.name}>
+                  <dt>{row.name}</dt>
+                  <dd>
+                    <span
+                      className="bar"
+                      style={{ width: `calc((100% - 76px) * ${row.ms / MODEL_SLOWEST})` }}
+                    />
+                    <span className="bar-value">{row.ms.toFixed(0)} ms</span>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </figure>
+          <p className="foot">
+            NumPy is still 7.5 times faster, because it hands the math to a library tuned by hand for
+            this chip. Writing the SIMD registers out by hand made Ember 1.6 times faster with
+            answers identical to the bit. Every number here comes from one run of the repo&apos;s
+            results script, which anyone can rerun.
           </p>
         </section>
 

@@ -1031,3 +1031,29 @@ input[type="range"]:active::-moz-range-thumb {
     border-bottom: 1px solid var(--line);
   }
 }
+
+/* Measured figures from a saved results run: big number, short label of what produced it. */
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 32px var(--gutter);
+  margin: 48px 0;
+  max-width: 1100px;
+}
+
+.facts dt {
+  font-family: var(--serif);
+  font-size: clamp(32px, 3.5vw, 48px);
+  font-weight: 300;
+  line-height: 1.05;
+  color: var(--ember-hot);
+  font-variant-numeric: tabular-nums;
+}
+
+.facts dd {
+  margin: 8px 0 0;
+  color: var(--smoke);
+  font-size: 15px;
+  line-height: 1.5;
+  max-width: 28ch;
+}
