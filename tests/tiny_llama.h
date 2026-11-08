@@ -23,6 +23,7 @@ struct TinyLlamaOptions {
   std::size_t max_positions = 16;
   bool tie = false;
   bool f16 = false;
+  bool bf16 = false;
   std::uint32_t seed = 1;
 };
 
@@ -57,7 +58,13 @@ inline std::vector<std::byte> TinyLlamaWeights(const TinyLlamaOptions& o) {
     for (const std::size_t dim : shape) count *= dim;
     std::vector<float> values(count);
     for (float& value : values) value = center + normal(random);
-    if (o.f16) {
+    if (o.bf16) {
+      std::vector<std::uint16_t> bits(count);
+      for (std::size_t i = 0; i < count; ++i) {
+        bits[i] = static_cast<std::uint16_t>(std::bit_cast<std::uint32_t>(values[i]) >> 16);
+      }
+      writer.AddBF16(name, shape, bits);
+    } else if (o.f16) {
       std::vector<std::uint16_t> bits(count);
       for (std::size_t i = 0; i < count; ++i) bits[i] = ToF16(values[i]);
       writer.AddF16(name, shape, bits);

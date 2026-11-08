@@ -194,8 +194,14 @@ Status LlamaModel::Bind(std::span<const std::byte> safetensors) {
       F16ToF32(entry->bytes.data(), expected.element_count(), widened.data<float>());
       return TensorView(widened);
     }
+    if (entry->dtype == DType::kBF16) {
+      EMBER_ASSIGN_OR_RETURN(const Tensor widened,
+                             Tensor::Uninitialized(arena_, DType::kF32, expected));
+      BF16ToF32(entry->bytes.data(), expected.element_count(), widened.data<float>());
+      return TensorView(widened);
+    }
     return Status::InvalidFormat(name + " is " + std::string(Name(entry->dtype)) +
-                                 ", but weights must be f32 or f16");
+                                 ", but weights must be f32, f16, or bf16");
   };
 
   const std::size_t q_width = c.head_count * c.head_dim;

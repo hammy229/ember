@@ -16,4 +16,9 @@ float F16ToF32(std::uint16_t bits);
 // uint16_t means a file's bytes can be read without caring how they are aligned.
 void F16ToF32(const std::byte* from, std::size_t count, float* out);
 
+// bfloat16 is the top half of an f32: same sign and exponent, 7 bits of mantissa instead of 23.
+// Widening it is putting 16 zero bits back underneath, so it is exact too. Same byte order and
+// alignment rules as F16ToF32.
+void BF16ToF32(const std::byte* from, std::size_t count, float* out);
+
 }  // namespace ember

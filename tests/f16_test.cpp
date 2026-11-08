@@ -56,4 +56,15 @@ TEST(F16, ReadsLittleEndianBytesAtAnyAlignment) {
   EXPECT_EQ(out[1], -2.0F);
 }
 
+TEST(BF16, IsTheTopHalfOfAnF32) {
+  // 1.0, -2.5, and the smallest positive bfloat16 subnormal, each as little-endian byte pairs.
+  const std::array<std::byte, 6> bytes{std::byte{0x80}, std::byte{0x3F}, std::byte{0x20},
+                                       std::byte{0xC0}, std::byte{0x01}, std::byte{0x00}};
+  std::array<float, 3> out{};
+  ember::BF16ToF32(bytes.data(), out.size(), out.data());
+  EXPECT_EQ(out[0], 1.0F);
+  EXPECT_EQ(out[1], -2.5F);
+  EXPECT_EQ(out[2], std::ldexp(1.0F, -133));
+}
+
 }  // namespace

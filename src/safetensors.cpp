@@ -26,6 +26,7 @@ Status Bad(std::string_view what) {
 std::optional<DType> DTypeFromName(std::string_view name) {
   if (name == "F32") return DType::kF32;
   if (name == "F16") return DType::kF16;
+  if (name == "BF16") return DType::kBF16;
   if (name == "I32") return DType::kI32;
   if (name == "I8") return DType::kI8;
   return std::nullopt;
@@ -96,7 +97,7 @@ StatusOr<Safetensors> Safetensors::Parse(std::span<const std::byte> file) {
   for (std::size_t i = kLengthBytes; i > 0; --i) {
     header_length = (header_length << 8) | static_cast<std::uint64_t>(file[i - 1]);
   }
-  if (header_length > kMaxHeaderBytes) return Bad("header is larger than 100 MB");
+  if (header_length > kMaxHeaderBytes) return Bad("header is larger than 16 MB");
   if (header_length > file.size() - kLengthBytes)
     return Bad("header runs past the end of the file");
 

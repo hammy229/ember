@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <bit>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -138,6 +140,24 @@ TEST(LlamaModel, WidensF16WeightsExactly) {
     const float before = original.data<float>()[i];
     EXPECT_EQ(widened.data<float>()[i], ember::F16ToF32(ember::testing::ToF16(before)));
     EXPECT_NEAR(widened.data<float>()[i], before, std::abs(before) / 512 + 1e-4F);
+  }
+}
+
+TEST(LlamaModel, WidensBF16WeightsExactly) {
+  TinyLlamaOptions bf16;
+  bf16.bf16 = true;
+  const std::vector<std::byte> weights = TinyLlamaWeights(bf16);
+  const auto model = LlamaModel::FromBytes(TinyLlamaConfig(bf16), weights);
+  ASSERT_TRUE(model.ok()) << model.status().ToString();
+  const std::vector<std::byte> exact = TinyLlamaWeights({});
+  const auto reference = LlamaModel::FromBytes(TinyLlamaConfig({}), exact);
+  ASSERT_TRUE(reference.ok());
+  const auto& widened = (*model)->weights().layers[1].up;
+  const auto& original = (*reference)->weights().layers[1].up;
+  for (std::size_t i = 0; i < widened.element_count(); ++i) {
+    // Cutting off the low 16 bits is what the file did, so that is what must come back.
+    const auto cut = std::bit_cast<std::uint32_t>(original.data<float>()[i]) & 0xFFFF0000U;
+    EXPECT_EQ(widened.data<float>()[i], std::bit_cast<float>(cut));
   }
 }
 

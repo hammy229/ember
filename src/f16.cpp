@@ -42,4 +42,12 @@ void F16ToF32(const std::byte* from, std::size_t count, float* out) {
   }
 }
 
+void BF16ToF32(const std::byte* from, std::size_t count, float* out) {
+  for (std::size_t i = 0; i < count; ++i) {
+    const auto low = static_cast<std::uint32_t>(from[2 * i]);
+    const auto high = static_cast<std::uint32_t>(from[2 * i + 1]);
+    out[i] = std::bit_cast<float>((high << 24) | (low << 16));
+  }
+}
+
 }  // namespace ember

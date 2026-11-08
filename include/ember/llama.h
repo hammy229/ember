@@ -60,9 +60,9 @@ struct LlamaWeights {
 
 // A loaded model: its config and every weight, checked against the config's shapes.
 //
-// f32 weights are read straight from the mapped file with no copy. f16 weights are widened to f32
-// once, into memory the model owns, because every op works in f32. Either way the weights are
-// read-only TensorViews.
+// f32 weights are read straight from the mapped file with no copy. f16 and bf16 weights are widened
+// to f32 once, into memory the model owns, because every op works in f32. Either way the weights
+// are read-only TensorViews.
 class LlamaModel {
  public:
   // Reads config.json and model.safetensors from a directory, the layout Hugging Face downloads.
@@ -78,7 +78,7 @@ class LlamaModel {
 
   // Every number in the model, counting a tied embedding once.
   std::size_t parameter_count() const;
-  // Bytes the model allocated to widen f16 weights. Zero for an f32 file.
+  // Bytes the model allocated to widen f16 or bf16 weights. Zero for an f32 file.
   std::size_t widened_bytes() const { return arena_.used_bytes(); }
 
   LlamaModel(const LlamaModel&) = delete;

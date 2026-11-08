@@ -30,8 +30,9 @@ namespace ember {
 //   belong to two tensors and no hidden bytes can ride along.
 class Safetensors {
  public:
-  // The reference implementation refuses headers over 100 MB, so no real file needs more.
-  static constexpr std::size_t kMaxHeaderBytes = std::size_t{100} << 20;
+  // The reference implementation allows 100 MB. Ember allows 16 MB, which is still hundreds of
+  // times the header of an 8B model and keeps a hostile header from eating a browser tab's memory.
+  static constexpr std::size_t kMaxHeaderBytes = std::size_t{16} << 20;
 
   struct Entry {
     std::string name;

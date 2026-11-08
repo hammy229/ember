@@ -80,8 +80,8 @@ TEST(Safetensors, RefusesALengthThatDoesNotFit) {
   std::vector<std::byte> file = RawSafetensors("{}", {});
   file[0] = std::byte{3};  // says 3 bytes of header, has 2
   EXPECT_TRUE(Mentions(ParseError(file), "past the end"));
-  file[7] = std::byte{0xFF};  // a header far over 100 MB
-  EXPECT_TRUE(Mentions(ParseError(file), "100 MB"));
+  file[7] = std::byte{0xFF};  // a header far over 16 MB
+  EXPECT_TRUE(Mentions(ParseError(file), "16 MB"));
 }
 
 TEST(Safetensors, RefusesAHeaderThatIsNotAnObject) {
@@ -96,7 +96,7 @@ TEST(Safetensors, RefusesBadTensorInfo) {
   EXPECT_TRUE(Mentions(with(R"(1)"), "not an object"));
   EXPECT_TRUE(Mentions(with(R"({"shape":[2],"data_offsets":[0,8]})"), "no dtype"));
   EXPECT_TRUE(
-      Mentions(with(R"({"dtype":"BF16","shape":[4],"data_offsets":[0,8]})"), "unsupported dtype"));
+      Mentions(with(R"({"dtype":"F64","shape":[1],"data_offsets":[0,8]})"), "unsupported dtype"));
   EXPECT_TRUE(Mentions(with(R"({"dtype":"F32","data_offsets":[0,8]})"), "no shape"));
   EXPECT_TRUE(Mentions(with(R"({"dtype":"I8","shape":[1,1,1,1,8],"data_offsets":[0,8]})"),
                        "too many dimensions"));

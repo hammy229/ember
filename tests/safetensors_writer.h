@@ -39,6 +39,12 @@ class SafetensorsWriter {
     Add(name, "F16", shape, bits.data(), bits.size() * sizeof(std::uint16_t));
   }
 
+  // Raw bfloat16 bit patterns.
+  void AddBF16(const std::string& name, const std::vector<std::size_t>& shape,
+               const std::vector<std::uint16_t>& bits) {
+    Add(name, "BF16", shape, bits.data(), bits.size() * sizeof(std::uint16_t));
+  }
+
   void AddMetadata(const std::string& key, const std::string& value) {
     metadata_ += (metadata_.empty() ? "" : ",") + Quote(key) + ":" + Quote(value);
   }
