@@ -11,6 +11,8 @@ TEST(DType, SizesAndNames) {
   EXPECT_EQ(ember::Name(ember::DType::kF32), "f32");
   EXPECT_EQ(ember::Name(ember::DType::kI32), "i32");
   EXPECT_EQ(ember::Name(ember::DType::kI8), "i8");
+  EXPECT_EQ(ember::SizeOf(ember::DType::kF16), 2U);
+  EXPECT_EQ(ember::Name(ember::DType::kF16), "f16");
 }
 
 TEST(DType, MapsCppTypesToDTypes) {

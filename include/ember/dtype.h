@@ -7,11 +7,14 @@
 
 namespace ember {
 
-// What one element of a tensor is. kI32 holds token ids and kI8 holds quantized weights.
+// What one element of a tensor is. kI32 holds token ids and kI8 holds quantized weights. kF16 is
+// only how weights arrive in a file: there is no C++ type to read it as, so the loader widens it to
+// kF32 before any math sees it.
 enum class DType : std::uint8_t {
   kF32,
   kI32,
   kI8,
+  kF16,
 };
 
 // Zero for a value that is not a real DType, which can happen when one is read from a file.
@@ -20,6 +23,8 @@ constexpr std::size_t SizeOf(DType dtype) {
     case DType::kF32:
     case DType::kI32:
       return 4;
+    case DType::kF16:
+      return 2;
     case DType::kI8:
       return 1;
   }
@@ -34,6 +39,8 @@ constexpr std::string_view Name(DType dtype) {
       return "i32";
     case DType::kI8:
       return "i8";
+    case DType::kF16:
+      return "f16";
   }
   return "unknown";
 }
