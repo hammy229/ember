@@ -29,7 +29,6 @@ jobs:
       fail-fast: false
       matrix:
         preset: [release, sanitize]
-    # Linux only while the repo is private: macOS minutes count 10x against the free allowance.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -39,6 +38,18 @@ jobs:
       - run: cmake --preset ${{ matrix.preset }}
       - run: cmake --build --preset ${{ matrix.preset }}
       - run: ctest --preset ${{ matrix.preset }}
+
+  # Apple clang and ARM, next to GCC on x86 above. Free now that the repo is public.
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        run: brew install ninja
+      - run: cmake --preset release
+      - run: cmake --build --preset release
+      - run: ctest --preset release
 
   fuzz:
     runs-on: ubuntu-latest
