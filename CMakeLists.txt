@@ -88,6 +88,7 @@ if(EMBER_BUILD_TESTS)
     tests/f16_test.cpp
     tests/json_test.cpp
     tests/llama_load_test.cpp
+    tests/loader_corruption_test.cpp
     tests/mapped_file_test.cpp
     tests/ops_test.cpp
     tests/safetensors_test.cpp
