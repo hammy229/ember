@@ -23,5 +23,5 @@ The engine is real and running in this tab, and every claim can be checked. Show
 ## Brand commitments
 
 - Layout inherited from the author's Tink and MedData sites: serif headlines, hairline dividers instead of cards, a fixed side rail, and a live object in the hero.
-- Palette chosen by the author: "Banked coals", a dark soot ground with one ember orange.
+- Palette: "Kiln paper", a warm near-white page with near-black ink, one ember accent, and slate for baselines. The author asked for a near-white background on Nov 8, replacing the earlier dark "Banked coals".
 - Free tools and free tiers only. Fonts are self-hosted.
