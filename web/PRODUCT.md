@@ -15,9 +15,9 @@ The engine is real and running in this tab, and every claim can be checked. Show
 ## Truth rules
 
 - No number appears unless a script in this repo measured it, or the visitor's own browser measures it live.
-- Say plainly what Ember cannot do yet. Until Milestone 2, it does not load a model or generate text.
+- Say plainly what Ember cannot do yet. Until Milestone 2, it does not generate text or run a model in the browser.
 - Anything made up for a demo, such as scores or queries, is labeled as made up.
-- No repo link until publish day, Nov 19, 2026. The repo and site stay private until then, and the page does not announce the date.
+- The repo is public (github.com/hammy229/ember) and the page links to it. The page does not announce dates or a schedule.
 - No em or en dashes in written copy.
 
 ## Brand commitments

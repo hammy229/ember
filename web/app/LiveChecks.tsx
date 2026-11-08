@@ -29,8 +29,11 @@ export function LiveChecks() {
   return (
     <div className="checks">
       <p>
-        The source is not public yet. For now, this is what you can check: the engine ran these on
-        itself in this tab when the page loaded.
+        The source, tests, and results are{" "}
+        <a className="plain" href="https://github.com/hammy229/ember">
+          on GitHub
+        </a>
+        . The engine also ran these on itself in this tab when the page loaded.
       </p>
       <dl>
         <div>
