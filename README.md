@@ -2,7 +2,7 @@
 
 An LLM inference engine written from scratch in C++20, with no ML framework. It runs natively and in the browser through WebAssembly.
 
-![Ember's site: a triangular grid of glowing coals, each one an attention weight the engine is computing live in the browser](docs/screenshots/home.png)
+![Ember's site: a triangular grid of coals from pale ash to deep ember, each one an attention weight the engine is computing live in the browser](docs/screenshots/home.png)
 
 The grid is not an animation. The browser is running made-up queries and keys through the real `MatMul` and `Softmax`, compiled from C++, and each coal shows its real value on hover.
 
@@ -13,6 +13,10 @@ Visitors can drag the scores and try to break it. Adding 1000 to every score wou
 ![Benchmark section: MatMul at 65 ms against 828 ms for textbook loops at 1024 x 1024, then a table timing the engine in the visitor's browser](docs/screenshots/speed.png)
 
 The bars come from [one saved run of `scripts/bench.sh`](docs/benchmarks/2026-11-06-m4.txt). The orange column is measured live in whatever browser opens the page, and here that was Chrome on an Apple M4.
+
+![Model section: logits within 4.2e-5 of a separate Llama, 815 tokens a second, and a bar chart where NumPy runs 128 tokens in 21 ms against Ember's 158 ms](docs/screenshots/model.png)
+
+The real-model results, with the baseline Ember still loses to drawn in slate. They come from [the saved results run](docs/results/2026-11-08-apple-m4.md).
 
 **Status:** Ember loads a real Llama model from Hugging Face's safetensors format and runs the full forward pass from token ids to logits. On the 15M parameter TinyStories model its logits agree with a separate NumPy Llama to within 4.2e-5, and after "Once upon a time" it picks a comma. The numbers are in [Results](#results). It has no tokenizer or KV cache yet, so it does not generate text. The loader treats model files as untrusted and is fuzzed in CI. See [the plan](docs/PLAN.md), [how memory works](docs/memory.md), [how the math works](docs/ops.md), [how loading works](docs/loader.md), and [how the forward pass works](docs/forward.md).
 
