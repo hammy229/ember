@@ -9,9 +9,18 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(EMBER_BUILD_TESTS "Build the test suite" ${PROJECT_IS_TOP_LEVEL})
 option(EMBER_WERROR "Treat warnings as errors" ${PROJECT_IS_TOP_LEVEL})
 option(EMBER_SANITIZE "Build with AddressSanitizer and UBSan" OFF)
+option(EMBER_FUZZ "Build the libFuzzer targets in fuzz/ (needs a clang with libFuzzer)" OFF)
 
 if(EMBER_SANITIZE)
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all)
+  add_link_options(-fsanitize=address,undefined)
+endif()
+
+if(EMBER_FUZZ)
+  # Everything gets coverage hooks so the fuzzer can see which branches an input reached. Only the
+  # fuzz targets link libFuzzer's main().
+  add_compile_options(-fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer
+                      -fno-sanitize-recover=all)
   add_link_options(-fsanitize=address,undefined)
 endif()
 
@@ -55,6 +64,16 @@ if(EMSCRIPTEN)
     -sEXPORTED_RUNTIME_METHODS=UTF8ToString,HEAPF32
     --no-entry)
   return()
+endif()
+
+if(EMBER_FUZZ)
+  foreach(target json safetensors)
+    add_executable(ember_fuzz_${target} fuzz/${target}_fuzz.cpp)
+    target_link_libraries(ember_fuzz_${target} PRIVATE ember ember_warnings)
+    target_link_options(ember_fuzz_${target} PRIVATE -fsanitize=fuzzer)
+  endforeach()
+  add_executable(ember_fuzz_seeds fuzz/make_seeds.cpp)
+  target_link_libraries(ember_fuzz_seeds PRIVATE ember_warnings)
 endif()
 
 add_executable(ember_cli tools/ember_cli.cpp)
