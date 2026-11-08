@@ -109,6 +109,12 @@ if(EMBER_BUILD_TESTS)
   set_tests_properties(cli_prints_version PROPERTIES
     PASS_REGULAR_EXPRESSION "^ember ${PROJECT_VERSION}\n$")
 
+  add_test(NAME cli_rejects_unknown_command COMMAND ember_cli bogus)
+  set_tests_properties(cli_rejects_unknown_command PROPERTIES PASS_REGULAR_EXPRESSION "usage:")
+  add_test(NAME cli_inspect_reports_a_missing_model COMMAND ember_cli inspect /no/such/model)
+  set_tests_properties(cli_inspect_reports_a_missing_model PROPERTIES
+    PASS_REGULAR_EXPRESSION "NOT_FOUND")
+
   add_test(NAME bench_runs COMMAND ember_bench 1 1000)
   set_tests_properties(bench_runs PROPERTIES PASS_REGULAR_EXPRESSION "median")
 
