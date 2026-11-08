@@ -47,7 +47,7 @@ Three ways, from cheapest to strongest:
 
 1. **Each piece against its definition.** `tests/layers_test.cpp` checks every layer against the formula written out in double precision, plus properties: RoPE at position 0 changes nothing, and a query and key rotated by positions 7 and 3 score the same as at 104 and 100.
 2. **The whole pass against a second implementation.** `tests/forward_test.cpp` runs random tiny models (tied and untied, f32 and f16, grouped-query attention, one to eight tokens) through `Forward` and through a separate Llama written with plain loops in double. They must agree within `1e-4`. Changing the sign of one term in RoPE makes three of the four comparisons fail, so the test does catch a real bug. It also checks that adding tokens never changes an earlier row's logits.
-3. **The real model against NumPy.** `scripts/reference_logits.py` is a third Llama, written in float32 NumPy from Hugging Face's modeling code. On the TinyStories model it agreed with Ember to within `2.4e-5` over the 5 tokens below, and within `4.2e-5` over a 24 token sentence, across all 32,000 logits and with the same top token at every position. The largest logit was about 25. Measured on Nov 8 with:
+3. **The real model against NumPy.** `scripts/reference_logits.py` is a third Llama, written in float32 NumPy from Hugging Face's modeling code. On the TinyStories model it agreed with Ember to within `4.2e-5` on three inputs from 5 to 128 tokens, across all 32,000 logits and with the same top token at every position. The largest logit was about 25. The full run is saved in [docs/results/2026-11-08-apple-m4.md](results/2026-11-08-apple-m4.md), and one input can be checked by hand with:
 
 ```sh
 ./build/release/ember logits models/tinyllama-15M --out /tmp/logits.f32 1 9038 2501 263 931
@@ -60,4 +60,4 @@ All three were written for this project, so they could share a misreading of the
 
 - There is no KV cache, so generating each new token reprocesses the whole sequence.
 - There is no tokenizer, so the CLI takes token ids.
-- Everything runs on one thread with no hand-written SIMD.
+- Everything runs on one thread. `Linear` uses 4-wide SIMD registers through the compiler's vector types, but there are no hand-tuned kernels yet, and NumPy with Apple's BLAS is still 7.5x faster on the same model ([results](results/2026-11-08-apple-m4.md)).
