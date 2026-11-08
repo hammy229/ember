@@ -21,6 +21,10 @@ struct TinyLlamaOptions {
   std::size_t heads = 2;
   std::size_t kv_heads = 2;
   std::size_t max_positions = 16;
+  // Zero means hidden / heads, the usual case.
+  std::size_t head_dim = 0;
+  std::string rope_theta = "10000.0";
+  std::string rms_norm_eps = "1e-05";
   bool tie = false;
   bool f16 = false;
   bool bf16 = false;
@@ -39,13 +43,14 @@ inline std::uint16_t ToF16(float value) {
 }
 
 inline std::string TinyLlamaConfig(const TinyLlamaOptions& o) {
-  return R"({"model_type": "llama", "hidden_act": "silu", "rms_norm_eps": 1e-05,)"
-         R"( "rope_theta": 10000.0, "rope_scaling": null, "vocab_size": )" +
+  return R"({"model_type": "llama", "hidden_act": "silu", "rms_norm_eps": )" + o.rms_norm_eps +
+         R"(, "rope_theta": )" + o.rope_theta + R"(, "rope_scaling": null, "vocab_size": )" +
          std::to_string(o.vocab) + R"(, "hidden_size": )" + std::to_string(o.hidden) +
          R"(, "intermediate_size": )" + std::to_string(o.intermediate) +
          R"(, "num_hidden_layers": )" + std::to_string(o.layers) + R"(, "num_attention_heads": )" +
          std::to_string(o.heads) + R"(, "num_key_value_heads": )" + std::to_string(o.kv_heads) +
          R"(, "max_position_embeddings": )" + std::to_string(o.max_positions) +
+         (o.head_dim != 0 ? R"(, "head_dim": )" + std::to_string(o.head_dim) : std::string()) +
          R"(, "tie_word_embeddings": )" + (o.tie ? "true" : "false") + "}";
 }
 
@@ -72,7 +77,7 @@ inline std::vector<std::byte> TinyLlamaWeights(const TinyLlamaOptions& o) {
       writer.AddF32(name, shape, values);
     }
   };
-  const std::size_t head_dim = o.hidden / o.heads;
+  const std::size_t head_dim = o.head_dim != 0 ? o.head_dim : o.hidden / o.heads;
   add("model.embed_tokens.weight", {o.vocab, o.hidden}, 0);
   for (std::size_t i = 0; i < o.layers; ++i) {
     const std::string p = "model.layers." + std::to_string(i) + ".";

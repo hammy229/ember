@@ -178,6 +178,37 @@ TEST(Forward, MatchesTheReferenceWithTiedEmbeddingsAndF16Weights) {
   ExpectMatchesReference(options, {3, 1, 4, 1, 5, 9, 2, 6});
 }
 
+TEST(Forward, MatchesTheReferenceWithTwoKeyHeadsForFour) {
+  // With one key head, h / group and h % kv_heads both give 0. Two tells them apart.
+  TinyLlamaOptions options;
+  options.hidden = 16;
+  options.heads = 4;
+  options.kv_heads = 2;
+  options.seed = 3;
+  ExpectMatchesReference(options, {5, 8, 1, 0, 2});
+}
+
+TEST(Forward, MatchesTheReferenceWhenHeadsDoNotSpanTheHiddenSize) {
+  // 3 heads of 6 is 18 wide, against a hidden size of 8, as some newer models do.
+  TinyLlamaOptions options;
+  options.heads = 3;
+  options.kv_heads = 1;
+  options.head_dim = 6;
+  options.seed = 4;
+  ExpectMatchesReference(options, {1, 2, 3, 4});
+}
+
+TEST(Forward, MatchesTheReferenceWithOtherRopeAndNormSettingsOverALongSequence) {
+  TinyLlamaOptions options;
+  options.max_positions = 64;
+  options.rope_theta = "500000.0";
+  options.rms_norm_eps = "1e-06";
+  options.seed = 6;
+  std::vector<std::int32_t> tokens;
+  for (std::int32_t i = 0; i < 40; ++i) tokens.push_back((i * 7) % 11);
+  ExpectMatchesReference(options, tokens);
+}
+
 TEST(Forward, MatchesTheReferenceForOneToken) { ExpectMatchesReference({}, {4}); }
 
 TEST(Forward, EarlierLogitsIgnoreLaterTokens) {
