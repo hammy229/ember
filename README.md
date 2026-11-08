@@ -14,7 +14,7 @@ Visitors can drag the scores and try to break it. Adding 1000 to every score wou
 
 The bars come from [one saved run of `scripts/bench.sh`](docs/benchmarks/2026-11-06-m4.txt). The orange column is measured live in whatever browser opens the page, and here that was Chrome on an Apple M4.
 
-**Status:** the memory layer and the core math are done: tensors, an arena allocator, matrix multiplication, softmax, and sanitizer support. The engine does not load a model or generate text yet. See [the plan](docs/PLAN.md), [how memory works](docs/memory.md), and [how the math works](docs/ops.md).
+**Status:** Ember loads a real Llama model from Hugging Face's safetensors format and runs the full forward pass from token ids to logits. On the 15M parameter TinyStories model its logits agree with a separate NumPy Llama to within 4.2e-5, and after "Once upon a time" it picks a comma. It has no tokenizer or KV cache yet, so it does not generate text. The loader treats model files as untrusted and is fuzzed in CI. See [the plan](docs/PLAN.md), [how memory works](docs/memory.md), [how the math works](docs/ops.md), [how loading works](docs/loader.md), and [how the forward pass works](docs/forward.md).
 
 ## Build
 
@@ -27,9 +27,18 @@ ctest --preset debug
 ./build/debug/ember
 ```
 
-Use the `sanitize` preset to run the tests with AddressSanitizer and UBSan, or `release` for an optimized build.
+Use the `sanitize` preset to run the tests with AddressSanitizer and UBSan, `release` for an optimized build, or `fuzz` for the libFuzzer targets ([docs/loader.md](docs/loader.md) says how).
 
 To use Ember inside another CMake project, add it with `add_subdirectory`. Its tests and `-Werror` stay off unless you turn on `EMBER_BUILD_TESTS` and `EMBER_WERROR`.
+
+To run a real model, download the 15M parameter test model (it goes in `models/`, which git ignores) and ask for the likeliest next tokens:
+
+```sh
+./scripts/fetch-model.sh
+cmake --preset release && cmake --build --preset release
+./build/release/ember inspect models/tinyllama-15M
+./build/release/ember logits models/tinyllama-15M 1 9038 2501 263 931
+```
 
 `ember_bench [repeats] [elements]` times a placeholder workload and compares the arena to the system allocator on your machine. Use the `release` preset for numbers worth reading.
 
