@@ -248,4 +248,8 @@ Status Scale(const TensorView& a, float factor, const Tensor& out) {
   return Zip(a, a, out, "Scale", [factor](float x, float) { return x * factor; });
 }
 
+Status Silu(const TensorView& a, const Tensor& out) {
+  return Zip(a, a, out, "Silu", [](float x, float) { return x / (1.0F + std::exp(-x)); });
+}
+
 }  // namespace ember

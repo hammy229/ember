@@ -11,9 +11,9 @@ namespace ember {
 // so it takes a slice or a transpose as readily as a plain tensor. Outputs are passed in rather
 // than allocated, so a caller can reuse scratch memory from an Arena.
 //
-// Add, Multiply, Scale, and Softmax can write exactly over an input. An output that only partly
-// overlaps an input is refused, because the op would read numbers it had already overwritten and
-// give a wrong answer without any sign of it.
+// Add, Multiply, Scale, Silu, and Softmax can write exactly over an input. An output that only
+// partly overlaps an input is refused, because the op would read numbers it had already overwritten
+// and give a wrong answer without any sign of it.
 
 // out[i] = a[i] + b[i]. All three must have the same shape.
 Status Add(const TensorView& a, const TensorView& b, const Tensor& out);
@@ -23,6 +23,10 @@ Status Multiply(const TensorView& a, const TensorView& b, const Tensor& out);
 
 // out[i] = a[i] * factor. Both must have the same shape.
 Status Scale(const TensorView& a, float factor, const Tensor& out);
+
+// out[i] = a[i] / (1 + e^-a[i]), the SiLU activation Llama's MLP uses. Both must have the same
+// shape.
+Status Silu(const TensorView& a, const Tensor& out);
 
 // Matrix product: [m, k] times [k, n] gives [m, n]. Whatever out held is replaced. Any dimensions
 // before the last two are a batch, must match exactly, and each matrix in it is multiplied on its

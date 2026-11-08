@@ -612,3 +612,22 @@ TEST(Softmax, RefusesAnOutputThatPartlyOverlapsItsInput) {
 }
 
 }  // namespace
+
+namespace {
+
+TEST(Silu, MatchesItsDefinitionAndStaysFiniteAtTheExtremes) {
+  Arena arena;
+  const std::vector<float> inputs{-1000.0F, -5.0F, -1.0F, 0.0F, 0.5F, 3.0F, 1000.0F};
+  const Tensor a = F32(arena, {inputs.size()}, inputs);
+  const Tensor out = Output(arena, {inputs.size()});
+  ASSERT_TRUE(ember::Silu(a, out).ok());
+  for (std::size_t i = 0; i < inputs.size(); ++i) {
+    const double x = inputs[i];
+    EXPECT_NEAR(out.at<float>(i), x / (1.0 + std::exp(-x)), 1e-6 * std::max(1.0, std::abs(x)));
+  }
+  EXPECT_EQ(out.at<float>(6), 1000.0F);
+  ASSERT_TRUE(ember::Silu(a, a).ok());
+  EXPECT_EQ(Values(arena, a), Values(arena, out));
+}
+
+}  // namespace
