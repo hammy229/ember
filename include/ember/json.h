@@ -17,6 +17,8 @@ namespace ember {
 // guessing what a broken file meant:
 //
 // - Nesting deeper than kMaxDepth is refused, so a file of a million '[' cannot overflow the stack.
+// - More than kMaxValues values is refused. Each one costs about a hundred bytes once parsed, so a
+//   header of "[0,0,0,..." would otherwise turn 16 MB of text into gigabytes of memory.
 // - An object with the same key twice is refused, because two readers of one file could then
 //   disagree on which value counts.
 // - Strings must be valid escapes, and \u escapes must pair up surrogates. They come out as UTF-8.
@@ -25,6 +27,9 @@ class Json {
   enum class Kind : std::uint8_t { kNull, kBool, kNumber, kString, kArray, kObject };
 
   static constexpr std::size_t kMaxDepth = 64;
+  // A real safetensors header needs about ten values per tensor, and big models have a few
+  // thousand tensors, so this leaves room to spare.
+  static constexpr std::size_t kMaxValues = std::size_t{1} << 20;
 
   static StatusOr<Json> Parse(std::string_view text);
 

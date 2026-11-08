@@ -1,13 +1,15 @@
 #include "ember/json.h"
 
+#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <unordered_set>
 #include <utility>
 
 #include "ember/check.h"
@@ -51,6 +53,7 @@ class JsonParser {
 
   StatusOr<Json> ParseValue(std::size_t depth) {
     if (AtEnd()) return Error("expected a value");
+    if (++value_count_ > Json::kMaxValues) return Error("too many values");
     Json value;
     switch (Peek()) {
       case '{':
@@ -84,6 +87,9 @@ class JsonParser {
     ++position_;  // '{'
     Json object;
     object.kind_ = Json::Kind::kObject;
+    // A hash set keeps the duplicate check linear. Searching the keys so far for each new one would
+    // be quadratic, and a 16 MB header of tiny keys would then take hours to refuse.
+    std::unordered_set<std::string> seen;
     SkipWhitespace();
     if (!AtEnd() && Peek() == '}') {
       ++position_;
@@ -93,7 +99,7 @@ class JsonParser {
       SkipWhitespace();
       if (AtEnd() || Peek() != '"') return Error("expected a key in quotes");
       EMBER_ASSIGN_OR_RETURN(std::string key, ParseString());
-      if (object.Find(key) != nullptr) return Error("duplicate key \"" + key + "\"");
+      if (!seen.insert(key).second) return Error("duplicate key \"" + key + "\"");
       SkipWhitespace();
       if (AtEnd() || Peek() != ':') return Error("expected ':' after a key");
       ++position_;
@@ -261,13 +267,18 @@ class JsonParser {
       while (!AtEnd() && IsDigit(Peek())) ++position_;
     }
 
-    const std::string lexeme(text_.substr(start, position_ - start));
+    const std::string_view lexeme = text_.substr(start, position_ - start);
     Json value;
     value.kind_ = Json::Kind::kNumber;
-    // strtod needs a terminated string, which is why the lexeme was copied out. The grammar above
-    // already proved it is a number, so strtod reads all of it.
-    value.number_ = std::strtod(lexeme.c_str(), nullptr);
-    if (!std::isfinite(value.number_)) return Error("number out of range");
+    // from_chars always reads '.' as the decimal point. strtod follows the process locale, and in
+    // a comma locale it would quietly read 1.5 as 1. The grammar above already proved this is a
+    // number, so the only failure left is one too large for a double.
+    const auto [end, error] =
+        std::from_chars(lexeme.data(), lexeme.data() + lexeme.size(), value.number_);
+    if (error != std::errc() || end != lexeme.data() + lexeme.size() ||
+        !std::isfinite(value.number_)) {
+      return Error("number out of range");
+    }
 
     if (whole && lexeme[0] != '-') {
       std::uint64_t exact = 0;
@@ -287,6 +298,7 @@ class JsonParser {
 
   std::string_view text_;
   std::size_t position_ = 0;
+  std::size_t value_count_ = 0;
 };
 
 StatusOr<Json> Json::Parse(std::string_view text) { return JsonParser(text).ParseDocument(); }

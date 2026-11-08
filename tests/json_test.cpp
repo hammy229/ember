@@ -111,6 +111,26 @@ TEST(Json, RefusesNestingPastTheLimit) {
   EXPECT_TRUE(Refused(std::string(1'000'000, '[')));
 }
 
+TEST(Json, RefusesMoreValuesThanTheLimit) {
+  std::string many = "[0";
+  for (std::size_t i = 1; i < Json::kMaxValues - 1; ++i) many += ",0";
+  EXPECT_TRUE(MustParse(many + "]").is_array());  // the array itself is one value
+  EXPECT_TRUE(Refused(many + ",0,0]"));
+}
+
+TEST(Json, FindsDuplicatesAmongManyKeysQuickly) {
+  std::string object = "{";
+  for (int i = 0; i < 200000; ++i) object += "\"k" + std::to_string(i) + "\":0,";
+  EXPECT_TRUE(MustParse(object + "\"end\":0}").is_object());
+  EXPECT_TRUE(Refused(object + "\"k7\":0}"));
+}
+
+TEST(Json, ReadsDecimalsTheSameWhateverTheLocale) {
+  EXPECT_EQ(MustParse("1.5").as_number(), 1.5);
+  EXPECT_EQ(MustParse("1e-05").as_number(), 1e-05);
+  EXPECT_EQ(MustParse("-0.25E+2").as_number(), -25.0);
+}
+
 TEST(Json, SaysWhereItGaveUp) {
   const auto parsed = Json::Parse("[1, x]");
   ASSERT_FALSE(parsed.ok());
