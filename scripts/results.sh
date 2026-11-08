@@ -37,10 +37,10 @@ local_changes=""
 [[ -z "$(git status --porcelain)" ]] || local_changes=" (with local changes)"
 
 # Token ids for real sentences, so the agreement check runs on text the model was trained for.
-# 5 tokens: "Once upon a time". 24 tokens: "Once upon a time, there was a little girl named Lily. She
+# 5 tokens: "Once upon a time". 23 tokens: "Once upon a time, there was a little girl named Lily. She
 # wanted to play with her little dog". 128 tokens: spread across the whole vocabulary.
 short=(1 9038 2501 263 931)
-sentence=(1 9038 2501 263 931 29892 727 471 263 2217 7826 4257 365 2354 29889 2296 5131 304 1708 411 902 263 2217 18136)
+sentence=(1 9038 2501 263 931 29892 727 471 263 2217 7826 4257 365 2354 29889 2296 5131 304 1708 411 902 2217 11203)
 long=()
 for ((i = 0; i < 128; i++)); do long+=($(((i * 7919 + 1) % 32000))); done
 
