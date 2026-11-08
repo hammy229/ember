@@ -31,7 +31,13 @@ class Shape {
   static StatusOr<Shape> Make(std::span<const std::size_t> dims);
   static StatusOr<Shape> Make(std::initializer_list<std::size_t> dims);
 
-  std::size_t rank() const { return rank_; }
+  std::size_t rank() const {
+    // Make() never builds a bigger shape. Saying so lets the optimizer see that a loop over the
+    // dimensions stays inside the arrays. Without it GCC 15 warns about index 4 of a 4 element
+    // array on code that can never get there.
+    if (rank_ > kMaxRank) __builtin_unreachable();
+    return rank_;
+  }
   std::span<const std::size_t> dims() const { return {dims_.data(), rank_}; }
   std::size_t element_count() const { return element_count_; }
 
