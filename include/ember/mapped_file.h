@@ -12,6 +12,10 @@ namespace ember {
 // opening a model costs almost nothing until the weights are touched, and the pages are shared with
 // any other process that maps the same file.
 //
+// If another program shortens the file while it is mapped, reading a page past the new end kills
+// the process with SIGBUS. That is how memory mapping works everywhere, and the fix is not to edit
+// a model file while something is running it.
+//
 // The pages are read-only. Writing through a pointer into them kills the process, which is why the
 // loader only ever hands them out as TensorView. Move-only: the mapping goes away with the object.
 class MappedFile {
