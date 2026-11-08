@@ -139,6 +139,9 @@ if(EMBER_BUILD_TESTS)
   set_tests_properties(cli_inspect_reports_a_missing_model PROPERTIES
     PASS_REGULAR_EXPRESSION "NOT_FOUND")
 
+  add_test(NAME cli_logits_rejects_a_bad_token_id COMMAND ember_cli logits /no/model 1 x)
+  set_tests_properties(cli_logits_rejects_a_bad_token_id PROPERTIES PASS_REGULAR_EXPRESSION "usage:")
+
   add_test(NAME bench_runs COMMAND ember_bench 1 1000)
   set_tests_properties(bench_runs PROPERTIES PASS_REGULAR_EXPRESSION "median")
 
