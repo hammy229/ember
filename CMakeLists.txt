@@ -31,6 +31,7 @@ add_library(ember STATIC
   src/check.cpp
   src/f16.cpp
   src/json.cpp
+  src/llama.cpp
   src/mapped_file.cpp
   src/ops.cpp
   src/safetensors.cpp
@@ -86,6 +87,7 @@ if(EMBER_BUILD_TESTS)
     tests/dtype_test.cpp
     tests/f16_test.cpp
     tests/json_test.cpp
+    tests/llama_load_test.cpp
     tests/mapped_file_test.cpp
     tests/ops_test.cpp
     tests/safetensors_test.cpp
