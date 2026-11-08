@@ -41,8 +41,9 @@ export default function Home() {
               animation. Your browser is computing it right now, with the same math attention runs on.
             </p>
             <p className="hero-honest">
-              It does not load a model or generate text yet. Tensors, memory, and the core math are
-              done. Text generation is the next milestone.
+              On a laptop it now loads a 15M parameter Llama and runs it all the way to logits. It
+              does not generate text yet, and no model runs in this tab yet. Text generation is the
+              next milestone.
             </p>
             <p className="hero-links">
               <a className="arrow" href="#softmax">
