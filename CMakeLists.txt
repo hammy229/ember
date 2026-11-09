@@ -117,6 +117,7 @@ if(EMBER_BUILD_TESTS)
     tests/arena_random_test.cpp
     tests/arena_test.cpp
     tests/autograd_test.cpp
+    tests/char_model_test.cpp
     tests/check_test.cpp
     tests/dtype_test.cpp
     tests/f16_test.cpp
