@@ -16,6 +16,7 @@
 #include "ember/generate.h"
 #include "ember/json.h"
 #include "ember/llama.h"
+#include "ember/route.h"
 #include "ember/threads.h"
 #include "ember/timer.h"
 #include "ember/tokenizer.h"
@@ -31,6 +32,15 @@ int Usage() {
          "                                run the model and show the likeliest next tokens;\n"
          "                                --out saves every logit as little-endian f32\n"
          "       ember tokenize MODEL_DIR TEXT  print the token ids of TEXT, one line\n"
+         "       ember route MODEL_DIR --threshold T [--signal NAME] [--tokens N] [--threads N]\n"
+         "                   [--q8] PROMPT\n"
+         "                                answer locally in chat format, and stop the moment the\n"
+         "                                model gets unsure enough that a bigger model should "
+         "take\n"
+         "                                over; NAME is \"max entropy\" (default), \"lowest "
+         "margin\",\n"
+         "                                \"mean entropy\", or \"share of tokens with margin under "
+         "0.5\"\n"
          "       ember generate MODEL_DIR [options] PROMPT\n"
          "                                continue the prompt, printing text as it comes\n"
          "         --tokens N   new tokens at most (default 128)\n"
@@ -296,6 +306,102 @@ int RunBatch(int argc, char** argv) {
   return 0;
 }
 
+// Answers locally and stops as soon as the router says the request should go to a bigger model.
+int RunRoute(int argc, char** argv) {
+  if (argc < 4) return Usage();
+  const std::string directory = argv[2];
+  ember::GenerateOptions options;
+  options.max_new_tokens = 384;
+  ember::LoadOptions load;
+  ember::Router::Options policy;
+  bool have_threshold = false;
+  std::string prompt;
+  for (int i = 3; i < argc; ++i) {
+    const std::string_view arg = argv[i];
+    const bool has_value = i + 1 < argc;
+    bool ok = true;
+    if (arg == "--threshold" && has_value) {
+      ok = ParseNumber(argv[++i], policy.threshold);
+      have_threshold = ok;
+    } else if (arg == "--signal" && has_value) {
+      const auto signal = ember::Router::ParseSignal(argv[++i]);
+      ok = signal.ok();
+      if (ok) policy.signal = *signal;
+    } else if (arg == "--tokens" && has_value) {
+      ok = ParseNumber(argv[++i], options.max_new_tokens);
+    } else if (arg == "--threads" && has_value) {
+      std::size_t threads = 0;
+      ok = ParseNumber(argv[++i], threads) && threads >= 1 && threads <= 256;
+      if (ok) ember::SetThreadCount(threads);
+    } else if (arg == "--q8") {
+      load.q8 = true;
+    } else if (i == argc - 1 && !arg.starts_with("--")) {
+      prompt = arg;
+    } else {
+      ok = false;
+    }
+    if (!ok) return Usage();
+  }
+  if (prompt.empty() || !have_threshold) return Usage();
+  const auto model = ember::LlamaModel::Load(directory, load);
+  if (!model.ok()) {
+    std::cerr << "error: " << model.status().ToString() << '\n';
+    return 1;
+  }
+  const auto tokenizer = ember::Tokenizer::Load(directory + "/tokenizer.json");
+  if (!tokenizer.ok()) {
+    std::cerr << "error: " << tokenizer.status().ToString() << '\n';
+    return 1;
+  }
+  if (tokenizer->kind() != ember::Tokenizer::Kind::kByteLevel) {
+    std::cerr << "error: ember route needs a chat model, like Qwen3\n";
+    return 1;
+  }
+  options.stop_tokens = tokenizer->stop_ids();
+  const std::vector<std::int32_t> ids = tokenizer->Encode(ChatPrompt(prompt), true);
+  auto generator = ember::Generator::Make(**model, ids, options);
+  if (!generator.ok()) {
+    std::cerr << "error: " << generator.status().ToString() << '\n';
+    return 1;
+  }
+  ember::Router router(policy);
+  std::vector<std::int32_t> reply;
+  std::size_t printed = 0;
+  const ember::Stopwatch stopwatch;
+  while (true) {
+    const auto token = (*generator)->Next();
+    if (!token.ok()) {
+      std::cerr << "\nerror: " << token.status().ToString() << '\n';
+      return 1;
+    }
+    if (!token->has_value()) break;
+    const ember::GeneratedToken& t = **token;
+    if (router.Update(t.stats)) break;
+    if (std::find(options.stop_tokens.begin(), options.stop_tokens.end(), t.id) !=
+        options.stop_tokens.end()) {
+      continue;
+    }
+    reply.push_back(t.id);
+    const std::string text = tokenizer->Decode(reply).value();
+    if (text.size() > printed && !text.ends_with("\xEF\xBF\xBD")) {
+      std::cout << text.substr(printed) << std::flush;
+      printed = text.size();
+    }
+  }
+  const double ms = stopwatch.ElapsedMs();
+  std::cout << '\n';
+  if (router.escalated()) {
+    std::cout << "[escalated at token " << *router.escalated_at() << ": score " << router.score()
+              << " reached the threshold " << policy.threshold
+              << ". A local-first router would hand this request to a bigger model now.]\n";
+  } else {
+    std::cout << "[answered locally: the score stayed at " << router.score() << ", under "
+              << policy.threshold << ".]\n";
+  }
+  std::cerr << router.tokens() << " tokens in " << ms << " ms\n";
+  return 0;
+}
+
 int RunGenerate(int argc, char** argv) {
   if (argc < 4) return Usage();
   const std::string directory = argv[2];
@@ -421,5 +527,6 @@ int main(int argc, char** argv) {
   if (command == "generate") return RunGenerate(argc, argv);
   if (command == "batch") return RunBatch(argc, argv);
   if (command == "tokenize") return RunTokenize(argc, argv);
+  if (command == "route") return RunRoute(argc, argv);
   return Usage();
 }

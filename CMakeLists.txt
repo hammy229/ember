@@ -47,6 +47,7 @@ add_library(ember STATIC
   src/mapped_file.cpp
   src/ops.cpp
   src/quant.cpp
+  src/route.cpp
   src/safetensors.cpp
   src/sampling.cpp
   src/shape.cpp
@@ -128,6 +129,7 @@ if(EMBER_BUILD_TESTS)
     tests/mapped_file_test.cpp
     tests/ops_test.cpp
     tests/quant_test.cpp
+    tests/route_test.cpp
     tests/safetensors_test.cpp
     tests/sampling_test.cpp
     tests/shape_test.cpp
@@ -164,6 +166,12 @@ if(EMBER_BUILD_TESTS)
   set_tests_properties(cli_generate_needs_a_prompt PROPERTIES PASS_REGULAR_EXPRESSION "usage:")
   add_test(NAME cli_generate_rejects_a_bad_number COMMAND ember_cli generate /no/model --temp x hi)
   set_tests_properties(cli_generate_rejects_a_bad_number PROPERTIES PASS_REGULAR_EXPRESSION "usage:")
+  add_test(NAME cli_route_needs_a_threshold COMMAND ember_cli route /no/model hi)
+  set_tests_properties(cli_route_needs_a_threshold PROPERTIES PASS_REGULAR_EXPRESSION "usage:")
+  add_test(NAME cli_route_rejects_an_unknown_signal
+           COMMAND ember_cli route /no/model --threshold 1 --signal vibes hi)
+  set_tests_properties(cli_route_rejects_an_unknown_signal PROPERTIES
+    PASS_REGULAR_EXPRESSION "usage:")
   add_test(NAME cli_generate_reports_a_missing_model COMMAND ember_cli generate /no/such/model hi)
   set_tests_properties(cli_generate_reports_a_missing_model PROPERTIES
     PASS_REGULAR_EXPRESSION "NOT_FOUND")
