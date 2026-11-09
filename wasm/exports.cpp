@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "ember/arena.h"
+#include "ember/char_model.h"
 #include "ember/generate.h"
 #include "ember/llama.h"
 #include "ember/ops.h"
@@ -305,6 +306,23 @@ int StartGeneration(const char* prompt, int max_tokens, float temperature, float
   return static_cast<int>(ids.size());
 }
 
+// Training from scratch in the tab: one trainer at a time.
+std::unique_ptr<ember::CharTrainer> g_trainer;
+std::string g_sample;
+
+int StartTraining(const char* text, int bytes, int seed) {
+  g_trainer.reset();
+  if (bytes < 0) return Fail(ember::Status::InvalidArgument("negative size"));
+  ember::CharTrainer::Options options;
+  options.seed = static_cast<std::uint32_t>(seed);
+  auto trainer = std::make_unique<ember::CharTrainer>(
+      std::string_view(text, static_cast<std::size_t>(bytes)), options);
+  if (!trainer->ready()) return Fail(ember::Status::InvalidArgument("the text is too short"));
+  const auto parameters = static_cast<int>(trainer->model().parameter_count());
+  g_trainer = std::move(trainer);
+  return parameters;
+}
+
 // 1 for a new token, 0 when generation is over, -1 on an error.
 int StepGeneration() {
   if (!g_generator) return Fail(ember::Status::InvalidArgument("nothing is being generated"));
@@ -372,5 +390,33 @@ EMSCRIPTEN_KEEPALIVE const char* ember_generated_text() { return g_text.c_str();
 EMSCRIPTEN_KEEPALIVE const float* ember_last_token() { return g_last.data(); }
 
 EMSCRIPTEN_KEEPALIVE const char* ember_last_error() { return g_error.c_str(); }
+
+// Starts training a new character-level transformer on the text. Gives its parameter count, or -1.
+EMSCRIPTEN_KEEPALIVE int ember_train_start(const char* text, int bytes, int seed) {
+  return StartTraining(text, bytes, seed);
+}
+
+// Runs `steps` optimizer steps and gives their mean training loss, or NaN with nothing to train.
+EMSCRIPTEN_KEEPALIVE float ember_train_steps(int steps) {
+  if (!g_trainer || steps < 1) return std::numeric_limits<float>::quiet_NaN();
+  float total = 0;
+  for (int i = 0; i < steps; ++i) total += g_trainer->Step();
+  return total / static_cast<float>(steps);
+}
+
+EMSCRIPTEN_KEEPALIVE float ember_train_held_out_loss() {
+  return g_trainer ? g_trainer->HeldOutLoss() : std::numeric_limits<float>::quiet_NaN();
+}
+
+EMSCRIPTEN_KEEPALIVE int ember_train_vocab() {
+  return g_trainer ? static_cast<int>(g_trainer->vocab().size()) : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* ember_train_sample(int count, float temperature, int seed) {
+  g_sample = g_trainer ? g_trainer->Sample("\n", static_cast<std::size_t>(std::max(count, 0)),
+                                           temperature, static_cast<std::uint32_t>(seed))
+                       : std::string();
+  return g_sample.c_str();
+}
 
 }  // extern "C"

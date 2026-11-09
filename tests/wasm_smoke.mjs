@@ -111,3 +111,22 @@ if (modelDir) {
   );
   console.log("wasm generation matches the native build");
 }
+
+// Training from scratch in WebAssembly: the loss on held-out text has to fall.
+{
+  const text = "the cat sat on the mat. ".repeat(200);
+  const bytes = ember.lengthBytesUTF8(text) + 1;
+  const pointer = ember._malloc(bytes);
+  ember.stringToUTF8(text, pointer, bytes);
+  const parameters = ember._ember_train_start(pointer, bytes - 1, 1);
+  ember._free(pointer);
+  assert.ok(parameters > 10000, ember.UTF8ToString(ember._ember_last_error()));
+  assert.equal(ember._ember_train_vocab(), 11);
+  const before = ember._ember_train_held_out_loss();
+  ember._ember_train_steps(60);
+  const after = ember._ember_train_held_out_loss();
+  assert.ok(after < before / 2, `held-out loss went from ${before} to ${after}`);
+  const sample = ember.UTF8ToString(ember._ember_train_sample(40, 0.5, 3));
+  assert.equal(sample.length, 41);
+  console.log(`wasm training: held-out loss ${before.toFixed(2)} -> ${after.toFixed(2)}`);
+}

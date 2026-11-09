@@ -71,7 +71,7 @@ if(EMSCRIPTEN)
     -sEXPORT_ES6=1
     -sENVIRONMENT=web,node
     -sALLOW_MEMORY_GROWTH=1
-    -sEXPORTED_FUNCTIONS=_ember_version,_ember_memory_self_check,_ember_ops_self_check,_ember_attention_frame,_ember_softmax_row,_ember_matmul_bench,_ember_load_model,_ember_generate_start,_ember_generate_step,_ember_generated_text,_ember_last_token,_ember_last_error,_malloc,_free
+    -sEXPORTED_FUNCTIONS=_ember_version,_ember_memory_self_check,_ember_ops_self_check,_ember_attention_frame,_ember_softmax_row,_ember_matmul_bench,_ember_load_model,_ember_generate_start,_ember_generate_step,_ember_generated_text,_ember_last_token,_ember_last_error,_ember_train_start,_ember_train_steps,_ember_train_held_out_loss,_ember_train_vocab,_ember_train_sample,_malloc,_free
     -sEXPORTED_RUNTIME_METHODS=UTF8ToString,stringToUTF8,lengthBytesUTF8,HEAPF32,HEAPU8
     --no-entry)
   return()
