@@ -1,17 +1,33 @@
 # Ember
 
-**An LLM inference engine written from scratch in C++20, with no ML framework. It loads real Llama models from Hugging Face, runs them on a laptop, and compiles to WebAssembly for the browser.**
+**An LLM engine written from scratch in C++20, with no ML framework. It runs Llama and Qwen3 models from Hugging Face, writes text, knows when it is unsure, trains small transformers with its own autograd, and compiles to WebAssembly so all of it also runs in a browser tab.**
 
 [![CI](https://github.com/hammy229/ember/actions/workflows/ci.yml/badge.svg)](https://github.com/hammy229/ember/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Links:** [Results](docs/results/2026-11-09-apple-m4.md) · [How loading works](docs/loader.md) · [How the forward pass works](docs/forward.md) · [Plan](docs/PLAN.md) · [Arham Doshi](https://arhamdoshi.dev) · [LinkedIn](https://linkedin.com/in/arhamdoshi)
+**Links:** [Results](docs/results/2026-11-09-apple-m4.md) · [Against llama.cpp](docs/results/llamacpp-qwen3-0.6b.md) · [8-bit report](docs/results/quant-qwen3-0.6b.md) · [How loading works](docs/loader.md) · [How the forward pass works](docs/forward.md) · [Plan](docs/PLAN.md) · [Arham Doshi](https://arhamdoshi.dev) · [LinkedIn](https://linkedin.com/in/arhamdoshi)
 
 ![Ember's site: a triangular grid of coals from pale ash to deep ember, each one an attention weight the engine is computing live in the browser](docs/screenshots/home.png)
 
 The grid is not an animation. The browser is running queries and keys through the real `MatMul` and `Softmax`, compiled from C++, and each coal shows its value on hover.
 
 ## Results
+
+### On a real model: Qwen3 0.6B
+
+Each row names the script or test that produced it; the numbers are in the linked results files, with the machine.
+
+| Claim | Measured | How it is checked |
+|---|---|---|
+| It runs Qwen3 exactly as Hugging Face does | Largest difference 1.0e-4 across the top 10 logits at all 73 positions of three inputs (a sentence, a chat-format math question, code), with the same next token at all 73 | `tests/hf_reference_test.cpp` against `scripts/hf_reference_qwen3.py`, with `EMBER_QWEN3_DIR` set (the 1.5 GB model is not downloaded in CI) |
+| Its tokenizers match Hugging Face's | The same token ids on 20 hard strings for Llama (CI) and 36 for Qwen3: NFC normalization, emoji, Hindi, Thai, CRLF, contractions, chat markup | `tests/tokenizer_test.cpp` against `scripts/hf_tokens.py`; Unicode 16 tables made by `scripts/gen_unicode_tables.py`, which checks its own NFC against Python's on every code point |
+| 8-bit weights make it faster and smaller | 58.9 tokens a second against 26.2 in f32, peak memory 2377 MB against 3545 MB, with 6 threads on an Apple M4 | [`scripts/quant_report.py`](docs/results/quant-qwen3-0.6b.md), median of 3 runs |
+| What 8 bits cost, stated plainly | Mean KL divergence 0.011 nats from the f32 model, the same top pick 94.2% of the time over 207 positions | Same report; with f32 inputs to the 8-bit matrices it was 0.0026 and 97.1%, at 45 tokens a second |
+| How far behind llama.cpp it is | 46% of llama.cpp's speed writing (58.0 against 126.9 tokens a second) and 40% reading a prompt, same model, same 8-bit format, CPU only, 6 threads | [`scripts/compare_llamacpp.py`](docs/results/llamacpp-qwen3-0.6b.md), published as measured. It was 33% and 19% before integer dot products and a lock-free thread pool |
+| Threads change speed, not answers | Results identical to the bit for any number of threads | `tests/threads_test.cpp`, and a ThreadSanitizer job in CI |
+| It can learn, not just run | Every autograd operation and a whole transformer's gradients match finite differences in double precision | `tests/autograd_test.cpp`, `tests/char_model_test.cpp` |
+
+### On the 15M parameter TinyStories Llama
 
 Every number here comes from one run of [`scripts/results.sh`](scripts/results.sh), saved in [docs/results/2026-11-09-apple-m4.md](docs/results/2026-11-09-apple-m4.md) with the commit, compiler, and machine. The SIMD row is from the [Nov 8 run](docs/results/2026-11-08-apple-m4.md), which timed the older commit too. Rerun it and you get your own copy.
 
@@ -27,7 +43,7 @@ Every number here comes from one run of [`scripts/results.sh`](scripts/results.s
 
 ![Model section of the site: logits within 3.0e-5 of Hugging Face's, the same next token at 156 of 156 positions, 814 tokens a second, and a bar chart where NumPy runs 128 tokens in 21 ms against Ember's 158 ms](docs/screenshots/model.png)
 
-The gap to NumPy is the to-do list: hand-written NEON kernels, more than one thread, and 8-bit weights, each with a before and after from the same script.
+These rows are from the Nov 9 run, before threads and 8-bit weights; the Qwen3 rows above are newer.
 
 ## Why it matters
 
@@ -37,10 +53,13 @@ Doing that well is mostly engineering: loading weights safely from files nobody 
 
 ## How it works
 
-1. **Load.** `MappedFile` maps `model.safetensors` read-only. A strict JSON parser reads the header, every offset and shape is checked, and f16 or bf16 weights are widened to f32 exactly. ([docs/loader.md](docs/loader.md))
-2. **Allocate.** One arena per forward pass hands out scratch memory by moving a pointer, and scoped marks give it all back at once. ([docs/memory.md](docs/memory.md))
-3. **Compute.** Embedding, then per layer RMS norm, attention with RoPE and grouped-query heads, and a SwiGLU MLP, then the output layer. Each op follows Hugging Face's Llama code step by step, including where it rounds. ([docs/forward.md](docs/forward.md), [docs/ops.md](docs/ops.md))
-4. **Run anywhere.** The same C++ compiles natively and to WebAssembly, and the site calls it from the browser.
+1. **Load.** `MappedFile` maps `model.safetensors` read-only. A strict JSON parser reads the header, every offset and shape is checked, and f16 or bf16 weights are widened to f32 exactly, or quantized straight to 8 bits a row at a time. ([docs/loader.md](docs/loader.md))
+2. **Tokenize.** Llama's SentencePiece-style BPE and Qwen3's byte-level BPE, with NFC normalization and Qwen's split regex written out by hand, both matching Hugging Face's ids.
+3. **Compute.** Embedding, then per layer RMS norm, attention with RoPE, grouped-query heads, and Qwen3's per-head query and key norms, and a SwiGLU MLP, then the output layer. A KV cache keeps each layer's keys and values so a new token costs one row. ([docs/forward.md](docs/forward.md), [docs/ops.md](docs/ops.md))
+4. **Generate and route.** Greedy, temperature, top-k, and top-p sampling, and for every token the entropy and top-2 margin of the model's choice. `ember route` uses them to stop mid-answer and hand the request to a bigger model once the local one gets unsure.
+5. **Go fast.** Matrix rows split across a thread pool, and 8-bit weights multiplied with the CPU's integer dot product instructions.
+6. **Learn.** A reverse-mode autograd and AdamW train a small character-level transformer from random weights, natively or in the browser.
+7. **Run anywhere.** The same C++ compiles natively and to WebAssembly, and the site calls it from the browser: writing, training, and attention maps all run in the visitor's tab.
 
 Design choices that matter:
 
@@ -69,6 +88,12 @@ cmake --preset release && cmake --build --preset release
 ./scripts/fetch-model.sh                       # 15M parameter test model into models/, which git ignores
 ./build/release/ember inspect models/tinyllama-15M
 ./build/release/ember logits models/tinyllama-15M 1 9038 2501 263 931   # "Once upon a time"
+./build/release/ember generate models/tinyllama-15M --stats "Once upon a time"
+
+./scripts/fetch-model.sh qwen3-0.6b             # Qwen3 0.6B, 1.5 GB
+./build/release/ember generate models/qwen3-0.6b --chat --q8 --threads 6 "Why is the sky blue?"
+./build/release/ember route models/qwen3-0.6b --q8 --threads 6 --threshold 2.5 "A hard question"
+./build/release/ember train data/text/shakespeare.txt --steps 1000   # any text file
 ```
 
 The site needs Node 24+ and Emscripten:
@@ -83,12 +108,14 @@ To use Ember inside another CMake project, add it with `add_subdirectory`. Its t
 ## Project structure
 
 ```
-include/ember/   public headers: tensors, arena, ops, layers, loader, forward pass
+include/ember/   public headers: tensors, arena, ops, layers, loader, forward pass, tokenizer,
+                 sampling, generation, router, 8-bit weights, threads, autograd, character model
 src/             the engine
 tests/           GoogleTest suites, reference implementations, corruption tests
 fuzz/            libFuzzer targets for the JSON parser and the whole loader
 tools/           the ember CLI and the benchmarks
-scripts/         fetch the model, benchmark, coverage, results report, reference logits
+scripts/         fetch models, benchmarks, coverage, reference logits and tokens, the routing
+                 eval, the 8-bit report, the llama.cpp comparison
 wasm/            exports for the WebAssembly build
 web/             the Next.js site
 docs/            one design doc per layer, the plan, saved benchmarks and results
@@ -103,7 +130,7 @@ cmake --preset sanitize && cmake --build --preset sanitize && ctest --preset san
 ./scripts/results.sh        # every number in this README, saved with the machine and commit
 ```
 
-CI runs on every push: a clang-format check, release and AddressSanitizer plus UBSan builds with GCC, a release build with Apple clang on macOS, a minute of fuzzing per target, the WebAssembly build with its smoke test, and the site build. The forward pass is checked against a separate double-precision implementation, and breaking RoPE, the attention scale, or the causal mask on purpose makes those tests fail. The Linux, sanitizer, and macOS jobs also download the real model and check its logits against the ones Hugging Face's `transformers` produced, and fail rather than skip if the download is missing.
+CI runs on every push: a clang-format check, release, AddressSanitizer plus UBSan, and ThreadSanitizer builds with GCC, a release build with Apple clang on macOS, a minute of fuzzing per target, the WebAssembly build with its smoke test, and the site build. The forward pass is checked against a separate double-precision implementation, and breaking RoPE, the attention scale, or the causal mask on purpose makes those tests fail. The Linux, sanitizer, and macOS jobs also download the real model and check its logits against the ones Hugging Face's `transformers` produced, and fail rather than skip if the download is missing.
 
 ![Benchmark section: MatMul at 65 ms against 828 ms for textbook loops at 1024 x 1024, then a table timing the engine in the visitor's browser](docs/screenshots/speed.png)
 
@@ -111,9 +138,10 @@ The bars come from [one saved run of `scripts/bench.sh`](docs/benchmarks/2026-11
 
 ## Limitations and next steps
 
-- No tokenizer or KV cache yet, so it does not generate text. Both are next, then text generation in the browser.
-- One thread, and 7.5x slower than NumPy with Apple's BLAS on the same model.
-- Llama-architecture models in one safetensors file. Llama 3's scaled RoPE is refused rather than run wrong.
+- llama.cpp is still about twice as fast on the same CPU. Likely reasons, not yet measured one by one: its matrix multiplies are blocked for the cache, and it runs a prompt as one large multiply where Ember goes row by row.
+- Rounding the inputs to 8 bits costs more accuracy than rounding the weights; a scale per smaller block, or f32 inputs for the most sensitive layers, are the next things to try.
+- Llama and Qwen3 models in one safetensors file. Llama 3's scaled RoPE and sliding-window attention are refused rather than run wrong.
+- The browser runs the 15M model only; Qwen3 0.6B needs more memory than a 32-bit WebAssembly tab should take.
 - The dated plan, with what is done and what is next, is in [docs/PLAN.md](docs/PLAN.md).
 
 ## License
