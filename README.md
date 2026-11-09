@@ -25,7 +25,7 @@ Every number here comes from one run of [`scripts/results.sh`](scripts/results.s
 | Bad input cannot crash it | Every truncation and thousands of corrupted headers fail cleanly under AddressSanitizer, and libFuzzer runs on every push | `tests/loader_corruption_test.cpp`, `fuzz/`, CI |
 | The tests reach the code | 328 tests, covering 97.8% of lines and 86.0% of branches in `src/` | `scripts/coverage.sh` |
 
-![Model section of the site: logits within 4.2e-5 of a separate Llama, 815 tokens a second, and a bar chart where NumPy runs 128 tokens in 21 ms against Ember's 158 ms](docs/screenshots/model.png)
+![Model section of the site: logits within 3.0e-5 of Hugging Face's, the same next token at 156 of 156 positions, 814 tokens a second, and a bar chart where NumPy runs 128 tokens in 21 ms against Ember's 158 ms](docs/screenshots/model.png)
 
 The gap to NumPy is the to-do list: hand-written NEON kernels, more than one thread, and 8-bit weights, each with a before and after from the same script.
 
