@@ -32,4 +32,3 @@ web/out/
 web/public/wasm/
 
 .DS_Store
-.claude/

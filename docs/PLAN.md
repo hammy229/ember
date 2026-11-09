@@ -22,7 +22,7 @@ Ember is an LLM inference engine written from scratch in C++20, with no ML frame
 | Sun, Nov 15 | Autograd and optimizer, with gradients checked numerically | |
 | Mon, Nov 16 | Train a tiny character-level transformer natively, final benchmarks | |
 | Tue, Nov 17 | **Milestone 3: training runs live in the browser**, attention maps and logit lens, benchmark and architecture pages | |
-| Wed, Nov 18 | **Feature freeze:** ECC code and security reviews, demo video, rehearsal | |
+| Wed, Nov 18 | **Feature freeze:** code and security reviews, demo video, rehearsal | |
 | Thu, Nov 19 | **Demo day, resume update, publish** | |
 | Fri, Nov 20 | Fixes only, no new features | |
 
