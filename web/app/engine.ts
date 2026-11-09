@@ -39,6 +39,19 @@ type EmberModule = {
   _ember_train_held_out_loss(): number;
   _ember_train_vocab(): number;
   _ember_train_sample(count: number, temperature: number, seed: number): number;
+  _ember_inspect(prompt: number, maxTokens: number): number;
+  _ember_inspect_json(): number;
+};
+
+/** One prompt seen from inside: every head's attention and the logit lens. */
+export type Inside = {
+  tokens: string[];
+  layers: number;
+  heads: number;
+  /** [layers][heads][tokens][tokens], flattened. */
+  attention: number[];
+  /** [layers][tokens] of [predicted next token, probability], flattened. */
+  lens: [string, number][];
 };
 
 /** One token the engine picked, and how sure the model was when it picked it. */
@@ -85,6 +98,8 @@ export type Engine = {
   /** Loss on text the model never trains on. */
   heldOutLoss(): number;
   sample(count: number, temperature: number, seed: number): string;
+  /** Runs the loaded model on a prompt and records what happens inside. */
+  inspect(prompt: string, maxTokens: number): Inside;
 };
 
 const ENGINE_URL = "/wasm/ember.js";
@@ -194,6 +209,19 @@ function wrap(module: EmberModule): Engine {
     },
     sample(count, temperature, seed) {
       return module.UTF8ToString(module._ember_train_sample(count, temperature, seed));
+    },
+    inspect(prompt, maxTokens) {
+      const bytes = module.lengthBytesUTF8(prompt) + 1;
+      const pointer = module._malloc(bytes);
+      try {
+        module.stringToUTF8(prompt, pointer, bytes);
+        if (module._ember_inspect(pointer, maxTokens) < 0) {
+          throw new Error(module.UTF8ToString(module._ember_last_error()));
+        }
+      } finally {
+        module._free(pointer);
+      }
+      return JSON.parse(module.UTF8ToString(module._ember_inspect_json())) as Inside;
     },
   };
 }

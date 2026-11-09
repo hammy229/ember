@@ -815,6 +815,110 @@ input[type="range"]:active::-moz-range-thumb {
   overflow-wrap: anywhere;
 }
 
+/* Look inside */
+.inside-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-top: 28px;
+}
+
+.inside-pickers div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inside-pickers span {
+  margin-right: 6px;
+  color: var(--graphite);
+  font-size: 15px;
+}
+
+.inside-pickers button {
+  min-width: 34px;
+  min-height: 34px;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.inside-pickers button.is-on {
+  border-color: var(--ember-ink);
+  color: var(--ember-ink);
+}
+
+.inside-attention {
+  display: grid;
+  gap: 2px;
+  margin-top: 20px;
+  overflow-x: auto;
+}
+
+.inside-row {
+  display: contents;
+}
+
+.inside-cell {
+  aspect-ratio: 1;
+  min-width: 10px;
+  border-radius: 2px;
+}
+
+.inside-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--graphite);
+  white-space: nowrap;
+  padding-right: 6px;
+  text-align: right;
+}
+
+.inside-label.is-top {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  text-align: left;
+  padding: 0 0 6px;
+  max-height: 7em;
+  overflow: hidden;
+}
+
+.inside-title {
+  margin-top: 40px;
+  font-size: 19px;
+  font-weight: 500;
+}
+
+.inside-lens-wrap {
+  margin-top: 14px;
+  overflow-x: auto;
+}
+
+.inside-lens {
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.inside-lens th {
+  padding: 2px 6px;
+  color: var(--graphite);
+  font-weight: 400;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.inside-lens thead th {
+  text-align: center;
+}
+
+.inside-lens td {
+  padding: 4px 6px;
+  border-radius: 2px;
+  white-space: nowrap;
+  text-align: center;
+}
+
 /* Bars */
 .bars {
   margin-top: clamp(40px, 5vw, 72px);

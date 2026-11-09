@@ -1,4 +1,5 @@
 import { CoalField } from "./CoalField";
+import { InsideLive } from "./InsideLive";
 import { LiveChecks } from "./LiveChecks";
 import { Rail } from "./Rail";
 import { SoftmaxLab } from "./SoftmaxLab";
@@ -98,6 +99,18 @@ export default function Home() {
             </p>
           </div>
           <WriteLive />
+        </section>
+
+        <section className="band split" id="inside">
+          <div className="band-head">
+            <h2>Look inside while it reads.</h2>
+            <p>
+              The engine can record what it does on the way: every attention head&apos;s weights,
+              and what the model would predict if it stopped after each layer. Both come from the
+              same forward pass that writes the stories above.
+            </p>
+          </div>
+          <InsideLive />
         </section>
 
         <section className="band split" id="train">
