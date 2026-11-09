@@ -5,14 +5,17 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "ember/arena.h"
 #include "ember/forward.h"
 
 namespace ember {
 
-StatusOr<GenerateResult> Generate(const LlamaModel& model, std::span<const std::int32_t> prompt,
-                                  const GenerateOptions& options, const TokenCallback& on_token) {
+StatusOr<std::unique_ptr<Generator>> Generator::Make(const LlamaModel& model,
+                                                     std::span<const std::int32_t> prompt,
+                                                     const GenerateOptions& options) {
   const std::size_t context = model.config().max_positions;
   if (prompt.empty()) {
     return Status::InvalidArgument("Generate needs a prompt of at least one token");
@@ -25,38 +28,64 @@ StatusOr<GenerateResult> Generate(const LlamaModel& model, std::span<const std::
   EMBER_ASSIGN_OR_RETURN(Sampler sampler, Sampler::Make(options.sampling));
   const std::size_t capacity = std::min(context, prompt.size() + options.max_new_tokens);
   EMBER_ASSIGN_OR_RETURN(auto cache, KvCache::Make(model.config(), capacity));
+  return std::unique_ptr<Generator>(
+      new Generator(model, options, std::move(sampler), std::move(cache),
+                    std::vector<std::int32_t>(prompt.begin(), prompt.end())));
+}
 
-  GenerateResult result;
-  Arena arena;
-  std::span<const std::int32_t> input = prompt;
-  std::int32_t last = -1;
-  while (true) {
-    if (result.tokens.size() == options.max_new_tokens) {
-      result.stop = GenerateResult::Stop::kMaxTokens;
-      break;
-    }
-    if (cache->size() + input.size() > context) {
-      result.stop = GenerateResult::Stop::kContextFull;
-      break;
-    }
-    arena.Reset();
-    EMBER_ASSIGN_OR_RETURN(const Tensor logits, ForwardCached(model, input, *cache, arena, true));
-    const std::span<const float> row(logits.data<float>(), logits.dim(1));
-    GeneratedToken token;
-    EMBER_ASSIGN_OR_RETURN(token.stats, Uncertainty(row));
-    EMBER_ASSIGN_OR_RETURN(token.id, sampler.Sample(row));
-    result.tokens.push_back(token);
-    if (on_token && !on_token(token, result.tokens.size() - 1)) {
-      result.stop = GenerateResult::Stop::kCallback;
-      break;
-    }
-    if (options.stop_token >= 0 && token.id == options.stop_token) {
-      result.stop = GenerateResult::Stop::kStopToken;
-      break;
-    }
-    last = token.id;
-    input = std::span<const std::int32_t>(&last, 1);
+Generator::Generator(const LlamaModel& model, const GenerateOptions& options, Sampler sampler,
+                     std::unique_ptr<KvCache> cache, std::vector<std::int32_t> prompt)
+    : model_(model),
+      options_(options),
+      sampler_(std::move(sampler)),
+      cache_(std::move(cache)),
+      pending_(std::move(prompt)) {}
+
+void Generator::Cancel() {
+  if (done_) return;
+  done_ = true;
+  stop_ = GenerateResult::Stop::kCallback;
+}
+
+StatusOr<std::optional<GeneratedToken>> Generator::Next() {
+  if (done_) return std::optional<GeneratedToken>();
+  if (generated_ == options_.max_new_tokens) {
+    done_ = true;
+    stop_ = GenerateResult::Stop::kMaxTokens;
+    return std::optional<GeneratedToken>();
   }
+  if (cache_->size() + pending_.size() > model_.config().max_positions) {
+    done_ = true;
+    stop_ = GenerateResult::Stop::kContextFull;
+    return std::optional<GeneratedToken>();
+  }
+  arena_.Reset();
+  EMBER_ASSIGN_OR_RETURN(const Tensor logits,
+                         ForwardCached(model_, pending_, *cache_, arena_, true));
+  const std::span<const float> row(logits.data<float>(), logits.dim(1));
+  GeneratedToken token;
+  EMBER_ASSIGN_OR_RETURN(token.stats, Uncertainty(row));
+  EMBER_ASSIGN_OR_RETURN(token.id, sampler_.Sample(row));
+  ++generated_;
+  pending_.assign(1, token.id);
+  if (options_.stop_token >= 0 && token.id == options_.stop_token) {
+    done_ = true;
+    stop_ = GenerateResult::Stop::kStopToken;
+  }
+  return std::optional<GeneratedToken>(token);
+}
+
+StatusOr<GenerateResult> Generate(const LlamaModel& model, std::span<const std::int32_t> prompt,
+                                  const GenerateOptions& options, const TokenCallback& on_token) {
+  EMBER_ASSIGN_OR_RETURN(auto generator, Generator::Make(model, prompt, options));
+  GenerateResult result;
+  while (true) {
+    EMBER_ASSIGN_OR_RETURN(const std::optional<GeneratedToken> token, generator->Next());
+    if (!token) break;
+    result.tokens.push_back(*token);
+    if (on_token && !on_token(*token, result.tokens.size() - 1)) generator->Cancel();
+  }
+  result.stop = generator->stop();
   return result;
 }
 
