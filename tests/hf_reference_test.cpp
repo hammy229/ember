@@ -275,4 +275,68 @@ TEST(HfReferenceTest, CachedGenerationMatchesForwardOverTheWholeContext) {
   EXPECT_LT(worst, 1e-4) << "largest difference between cached and uncached logits";
 }
 
+// Qwen3 0.6B, the first real model, against tests/reference/hf_logits_qwen3-0.6b.json from
+// scripts/hf_reference_qwen3.py. It is 1.5 GB, so this runs when EMBER_QWEN3_DIR points at it.
+TEST(HfReferenceTest, Qwen3MatchesHuggingFace) {
+  const char* directory = std::getenv("EMBER_QWEN3_DIR");
+  if (directory == nullptr || *directory == '\0') {
+    GTEST_SKIP() << "set EMBER_QWEN3_DIR to models/qwen3-0.6b (scripts/fetch-model.sh qwen3-0.6b)";
+  }
+  std::ifstream in(EMBER_REFERENCE_DIR "/hf_logits_qwen3-0.6b.json", std::ios::binary);
+  ASSERT_TRUE(in.good());
+  const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  const auto reference = Json::Parse(text);
+  ASSERT_TRUE(reference.ok()) << reference.status().ToString();
+  const auto model = ember::LlamaModel::Load(directory);
+  ASSERT_TRUE(model.ok()) << model.status().ToString();
+  const std::size_t vocab = Count(*reference, "vocab_size");
+  ASSERT_EQ(vocab, (*model)->config().vocab_size);
+
+  double worst_top = 0;
+  double worst_logsumexp = 0;
+  std::size_t positions = 0;
+  std::size_t same_pick = 0;
+  for (const Json& input : Items(Member(*reference, "inputs"))) {
+    const std::vector<std::size_t> ids = Ids(Member(input, "tokens"), vocab);
+    const std::vector<std::int32_t> tokens(ids.begin(), ids.end());
+    ember::Arena arena;
+    const auto logits = ember::Forward(**model, tokens, arena);
+    ASSERT_TRUE(logits.ok()) << logits.status().ToString();
+    const auto rows = Items(Member(input, "positions"));
+    ASSERT_EQ(rows.size(), tokens.size());
+    for (std::size_t t = 0; t < tokens.size(); ++t) {
+      SCOPED_TRACE(Member(input, "name").as_string() + ", position " + std::to_string(t));
+      const float* row = logits->data<float>() + t * vocab;
+      const std::vector<std::size_t> top_ids = Ids(Member(rows[t], "top_ids"), vocab);
+      const std::vector<double> top_logits = Numbers(Member(rows[t], "top_logits"));
+      ASSERT_EQ(top_ids.size(), top_logits.size());
+      for (std::size_t i = 0; i < top_ids.size(); ++i) {
+        worst_top = std::max(worst_top, std::abs(row[top_ids[i]] - top_logits[i]));
+      }
+      double largest = row[0];
+      std::size_t pick = 0;
+      for (std::size_t i = 1; i < vocab; ++i) {
+        if (row[i] > largest) {
+          largest = row[i];
+          pick = i;
+        }
+      }
+      double sum = 0;
+      for (std::size_t i = 0; i < vocab; ++i) sum += std::exp(row[i] - largest);
+      worst_logsumexp = std::max(worst_logsumexp, std::abs(largest + std::log(sum) -
+                                                           Number(Member(rows[t], "logsumexp"))));
+      same_pick += pick == top_ids[0] ? 1 : 0;
+      ++positions;
+    }
+  }
+  std::cout << "Qwen3 0.6B: largest difference from Hugging Face " << worst_top
+            << " in the top 10 logits, " << worst_logsumexp << " in logsumexp; same next token at "
+            << same_pick << " of " << positions << " positions\n";
+  EXPECT_EQ(positions, 73U);
+  // Logits here run to about 30, through 28 layers in f32.
+  EXPECT_LT(worst_top, 1e-3);
+  EXPECT_LT(worst_logsumexp, 1e-3);
+  EXPECT_EQ(same_pick, positions);
+}
+
 }  // namespace
