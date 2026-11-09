@@ -51,7 +51,7 @@ int Inspect(const std::string& directory) {
             << ", mlp " << c.intermediate_size << ", vocab " << c.vocab_size << ", context "
             << c.max_positions << (c.tie_word_embeddings ? ", tied embeddings" : "") << '\n'
             << "parameters " << (*model)->parameter_count() << '\n'
-            << "widened from f16 " << (*model)->widened_bytes() << " bytes\n"
+            << "widened to f32 " << (*model)->widened_bytes() << " bytes\n"
             << "loaded in " << load_ms << " ms\n";
   return 0;
 }
