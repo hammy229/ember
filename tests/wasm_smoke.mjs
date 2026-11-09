@@ -130,3 +130,22 @@ if (modelDir) {
   assert.equal(sample.length, 41);
   console.log(`wasm training: held-out loss ${before.toFixed(2)} -> ${after.toFixed(2)}`);
 }
+
+// Looking inside: attention rows sum to 1 and the logit lens has one pick per layer and token.
+if (modelDir) {
+  const prompt = "Once upon a time, there was a little girl";
+  const promptBytes = ember.lengthBytesUTF8(prompt) + 1;
+  const promptPointer = ember._malloc(promptBytes);
+  ember.stringToUTF8(prompt, promptPointer, promptBytes);
+  const count = ember._ember_inspect(promptPointer, 32);
+  ember._free(promptPointer);
+  assert.ok(count > 5, ember.UTF8ToString(ember._ember_last_error()));
+  const inside = JSON.parse(ember.UTF8ToString(ember._ember_inspect_json()));
+  assert.equal(inside.tokens.length, count);
+  assert.equal(inside.tokens.slice(1).join(""), prompt);
+  assert.equal(inside.attention.length, inside.layers * inside.heads * count * count);
+  assert.equal(inside.lens.length, inside.layers * count);
+  const row = inside.attention.slice(3 * count, 4 * count);
+  assert.ok(Math.abs(row.reduce((a, b) => a + b, 0) - 1) < 0.01);
+  console.log(`wasm inspect: ${count} tokens, ${inside.layers} layers x ${inside.heads} heads`);
+}

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <initializer_list>
 #include <limits>
 #include <memory>
@@ -17,6 +18,7 @@
 
 #include "ember/arena.h"
 #include "ember/char_model.h"
+#include "ember/forward.h"
 #include "ember/generate.h"
 #include "ember/llama.h"
 #include "ember/ops.h"
@@ -306,6 +308,95 @@ int StartGeneration(const char* prompt, int max_tokens, float temperature, float
   return static_cast<int>(ids.size());
 }
 
+// Looking inside: one prompt's tokens, every head's attention, and the logit lens, as JSON.
+std::string g_inspect;
+
+void AppendJsonString(std::string& out, std::string_view text) {
+  out += '"';
+  for (const char c : text) {
+    if (c == '"' || c == '\\') {
+      out += '\\';
+      out += c;
+    } else if (static_cast<unsigned char>(c) < 0x20) {
+      char escaped[8];
+      std::snprintf(escaped, sizeof escaped, "\\u%04x", static_cast<unsigned>(c));
+      out += escaped;
+    } else {
+      out += c;
+    }
+  }
+  out += '"';
+}
+
+void AppendNumber(std::string& out, float value) {
+  char text[16];
+  std::snprintf(text, sizeof text, "%.3g", static_cast<double>(value));
+  out += text;
+}
+
+int Inspect(const char* prompt, int max_tokens) {
+  if (!g_loaded) return Fail(ember::Status::InvalidArgument("no model is loaded"));
+  std::vector<std::int32_t> ids = g_loaded->tokenizer->Encode(prompt, true);
+  if (max_tokens > 0 && ids.size() > static_cast<std::size_t>(max_tokens)) {
+    ids.resize(static_cast<std::size_t>(max_tokens));
+  }
+  ember::Arena arena;
+  ember::ForwardTrace trace;
+  const auto logits = ember::Forward(*g_loaded->model, ids, arena, &trace);
+  if (!logits.ok()) return Fail(logits.status());
+  ember::Arena lens_arena;
+  const auto lens = ember::LogitLens(*g_loaded->model, trace, lens_arena);
+  if (!lens.ok()) return Fail(lens.status());
+
+  // Each token's own text: the decoded prefix through it, minus the prefix before it.
+  const auto& tokenizer = *g_loaded->tokenizer;
+  const auto text_of = [&](std::span<const std::int32_t> part) {
+    const bool bos = !part.empty() && part[0] == tokenizer.bos_id();
+    return tokenizer.Decode(part.subspan(bos ? 1 : 0)).value();
+  };
+  const auto piece = [&](std::int32_t id) {
+    const std::vector<std::int32_t> one{id};
+    return tokenizer.Decode(one).value();
+  };
+  const ember::LlamaConfig& c = g_loaded->model->config();
+  const std::size_t n = ids.size();
+  std::string out = "{\"tokens\": [";
+  std::string before;
+  for (std::size_t i = 0; i < n; ++i) {
+    const std::string now = text_of(std::span(ids).first(i + 1));
+    std::string token = ids[i] == tokenizer.bos_id()
+                            ? std::string("<s>")
+                            : now.substr(std::min(before.size(), now.size()));
+    before = now;
+    if (i) out += ", ";
+    AppendJsonString(out, token);
+  }
+  out += "], \"layers\": " + std::to_string(c.layer_count) +
+         ", \"heads\": " + std::to_string(c.head_count) + ", \"attention\": [";
+  bool first = true;
+  for (const auto& layer : trace.attention) {
+    for (const float p : layer) {
+      if (!first) out += ',';
+      first = false;
+      AppendNumber(out, p);
+    }
+  }
+  out += "], \"lens\": [";
+  for (std::size_t l = 0; l < lens->size(); ++l) {
+    for (std::size_t t = 0; t < n; ++t) {
+      if (l || t) out += ", ";
+      out += '[';
+      AppendJsonString(out, piece((*lens)[l][t].id));
+      out += ", ";
+      AppendNumber(out, (*lens)[l][t].probability);
+      out += ']';
+    }
+  }
+  out += "]}";
+  g_inspect = std::move(out);
+  return static_cast<int>(n);
+}
+
 // Training from scratch in the tab: one trainer at a time.
 std::unique_ptr<ember::CharTrainer> g_trainer;
 std::string g_sample;
@@ -390,6 +481,14 @@ EMSCRIPTEN_KEEPALIVE const char* ember_generated_text() { return g_text.c_str();
 EMSCRIPTEN_KEEPALIVE const float* ember_last_token() { return g_last.data(); }
 
 EMSCRIPTEN_KEEPALIVE const char* ember_last_error() { return g_error.c_str(); }
+
+// Runs the prompt (at most max_tokens of it) and keeps its tokens, attention, and logit lens as
+// JSON for ember_inspect_json. Gives the number of tokens, or -1.
+EMSCRIPTEN_KEEPALIVE int ember_inspect(const char* prompt, int max_tokens) {
+  return Inspect(prompt, max_tokens);
+}
+
+EMSCRIPTEN_KEEPALIVE const char* ember_inspect_json() { return g_inspect.c_str(); }
 
 // Starts training a new character-level transformer on the text. Gives its parameter count, or -1.
 EMSCRIPTEN_KEEPALIVE int ember_train_start(const char* text, int bytes, int seed) {
