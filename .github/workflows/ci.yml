@@ -31,8 +31,21 @@ jobs:
         preset: [release, sanitize]
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Milestone 1: tests/hf_reference_test.cpp checks the logits against Hugging Face's, and fails
+    # rather than skips if the model is missing.
+    env:
+      EMBER_MODEL_DIR: ${{ github.workspace }}/models/tinyllama-15M
+      EMBER_REQUIRE_MODEL: "1"
     steps:
       - uses: actions/checkout@v4
+      # The model is 30 MB from Hugging Face. fetch-model.sh pins every file's hash, so its own
+      # hash is a safe cache key: a new pin means a new download.
+      - name: Cache the test model
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: model-${{ hashFiles('scripts/fetch-model.sh') }}
+      - run: ./scripts/fetch-model.sh
       - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build
       - run: cmake --preset ${{ matrix.preset }}
@@ -43,8 +56,21 @@ jobs:
   macos:
     runs-on: macos-latest
     timeout-minutes: 15
+    # Milestone 1: tests/hf_reference_test.cpp checks the logits against Hugging Face's, and fails
+    # rather than skips if the model is missing.
+    env:
+      EMBER_MODEL_DIR: ${{ github.workspace }}/models/tinyllama-15M
+      EMBER_REQUIRE_MODEL: "1"
     steps:
       - uses: actions/checkout@v4
+      # The model is 30 MB from Hugging Face. fetch-model.sh pins every file's hash, so its own
+      # hash is a safe cache key: a new pin means a new download.
+      - name: Cache the test model
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: model-${{ hashFiles('scripts/fetch-model.sh') }}
+      - run: ./scripts/fetch-model.sh
       - name: Install Ninja
         run: brew install ninja
       - run: cmake --preset release
