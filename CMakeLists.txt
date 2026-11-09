@@ -111,6 +111,7 @@ if(EMBER_BUILD_TESTS)
     tests/dtype_test.cpp
     tests/f16_test.cpp
     tests/forward_test.cpp
+    tests/hf_reference_test.cpp
     tests/json_test.cpp
     tests/layers_test.cpp
     tests/llama_load_test.cpp
@@ -126,7 +127,8 @@ if(EMBER_BUILD_TESTS)
     tests/version_test.cpp)
   target_link_libraries(ember_tests PRIVATE ember GTest::gtest_main)
   target_link_libraries(ember_tests PRIVATE ember_warnings)
-  target_compile_definitions(ember_tests PRIVATE EMBER_PROJECT_VERSION="${PROJECT_VERSION}")
+  target_compile_definitions(ember_tests PRIVATE EMBER_PROJECT_VERSION="${PROJECT_VERSION}"
+    EMBER_REFERENCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/reference")
 
   include(GoogleTest)
   gtest_discover_tests(ember_tests)
