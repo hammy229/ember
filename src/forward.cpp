@@ -10,10 +10,16 @@
 
 #include "ember/layers.h"
 #include "ember/ops.h"
+#include "ember/quant.h"
 
 namespace ember {
 
 namespace {
+
+// A Linear layer through whichever copy of the weight the model kept.
+Status Project(const TensorView& x, const TensorView& f32, const Q8Matrix& q8, const Tensor& out) {
+  return q8.empty() ? Linear(x, f32, out) : LinearQ8(x, q8, out);
+}
 
 StatusOr<Tensor> Scratch(Arena& arena, std::initializer_list<std::size_t> dims) {
   EMBER_ASSIGN_OR_RETURN(const Shape shape, Shape::Make(dims));
@@ -45,9 +51,9 @@ Status RunLayer(const LlamaConfig& c, const LlamaLayer& layer, const Tensor& x,
   EMBER_ASSIGN_OR_RETURN(const Tensor q, Scratch(arena, {tokens, q_width}));
   EMBER_ASSIGN_OR_RETURN(const Tensor k, Scratch(arena, {tokens, kv_width}));
   EMBER_ASSIGN_OR_RETURN(const Tensor v, Scratch(arena, {tokens, kv_width}));
-  EMBER_RETURN_IF_ERROR(Linear(normed, layer.query, q));
-  EMBER_RETURN_IF_ERROR(Linear(normed, layer.key, k));
-  EMBER_RETURN_IF_ERROR(Linear(normed, layer.value, v));
+  EMBER_RETURN_IF_ERROR(Project(normed, layer.query, layer.query_q8, q));
+  EMBER_RETURN_IF_ERROR(Project(normed, layer.key, layer.key_q8, k));
+  EMBER_RETURN_IF_ERROR(Project(normed, layer.value, layer.value_q8, v));
 
   // The same numbers seen as [tokens, heads, head_dim], so each head is its own slice.
   EMBER_ASSIGN_OR_RETURN(const Shape q_heads, Shape::Make({tokens, c.head_count, c.head_dim}));
@@ -86,17 +92,17 @@ Status RunLayer(const LlamaConfig& c, const LlamaLayer& layer, const Tensor& x,
   EMBER_ASSIGN_OR_RETURN(const Tensor attended_flat, attended.Reshape(flat));
 
   // The attention output reuses `normed`, which is no longer needed and has the right shape.
-  EMBER_RETURN_IF_ERROR(Linear(attended_flat, layer.output, normed));
+  EMBER_RETURN_IF_ERROR(Project(attended_flat, layer.output, layer.output_q8, normed));
   EMBER_RETURN_IF_ERROR(Add(x, normed, x));
 
   EMBER_RETURN_IF_ERROR(RmsNorm(x, layer.mlp_norm, c.rms_norm_eps, normed));
   EMBER_ASSIGN_OR_RETURN(const Tensor gate, Scratch(arena, {tokens, c.intermediate_size}));
   EMBER_ASSIGN_OR_RETURN(const Tensor up, Scratch(arena, {tokens, c.intermediate_size}));
-  EMBER_RETURN_IF_ERROR(Linear(normed, layer.gate, gate));
-  EMBER_RETURN_IF_ERROR(Linear(normed, layer.up, up));
+  EMBER_RETURN_IF_ERROR(Project(normed, layer.gate, layer.gate_q8, gate));
+  EMBER_RETURN_IF_ERROR(Project(normed, layer.up, layer.up_q8, up));
   EMBER_RETURN_IF_ERROR(Silu(gate, gate));
   EMBER_RETURN_IF_ERROR(Multiply(gate, up, gate));
-  EMBER_RETURN_IF_ERROR(Linear(gate, layer.down, normed));
+  EMBER_RETURN_IF_ERROR(Project(gate, layer.down, layer.down_q8, normed));
   return Add(x, normed, x);
 }
 
@@ -123,7 +129,7 @@ StatusOr<Tensor> Forward(const LlamaModel& model, std::span<const std::int32_t> 
       EMBER_RETURN_IF_ERROR(RunLayer(c, layer, x, 0, nullptr, arena));
     }
     EMBER_RETURN_IF_ERROR(RmsNorm(x, w.final_norm, c.rms_norm_eps, x));
-    EMBER_RETURN_IF_ERROR(Linear(x, w.lm_head, logits));
+    EMBER_RETURN_IF_ERROR(Project(x, w.lm_head, w.lm_head_q8, logits));
   }
   return logits;
 }
@@ -184,7 +190,7 @@ StatusOr<Tensor> ForwardCached(const LlamaModel& model, std::span<const std::int
     }
     EMBER_ASSIGN_OR_RETURN(const Tensor tail, x.Slice(0, tokens.size() - rows, rows));
     EMBER_RETURN_IF_ERROR(RmsNorm(tail, w.final_norm, c.rms_norm_eps, tail));
-    EMBER_RETURN_IF_ERROR(Linear(tail, w.lm_head, logits));
+    EMBER_RETURN_IF_ERROR(Project(tail, w.lm_head, w.lm_head_q8, logits));
   }
   cache.size_ += tokens.size();
   return logits;

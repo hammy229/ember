@@ -190,7 +190,7 @@ StatusOr<LlamaConfig> LlamaConfig::FromJson(std::string_view json_text) {
   return config;
 }
 
-std::size_t LlamaModel::parameter_count() const {
+std::size_t LlamaModel::CountParameters() const {
   std::size_t count = weights_.embedding.element_count() + weights_.final_norm.element_count();
   if (!config_.tie_word_embeddings) count += weights_.lm_head.element_count();
   for (const LlamaLayer& layer : weights_.layers) {
@@ -206,7 +206,8 @@ std::size_t LlamaModel::parameter_count() const {
   return count;
 }
 
-StatusOr<std::unique_ptr<LlamaModel>> LlamaModel::Load(const std::string& directory) {
+StatusOr<std::unique_ptr<LlamaModel>> LlamaModel::Load(const std::string& directory,
+                                                       const LoadOptions& options) {
   EMBER_ASSIGN_OR_RETURN(const MappedFile config_file,
                          MappedFile::Open(directory + "/config.json"));
   StatusOr<MappedFile> weights_file = MappedFile::Open(directory + "/model.safetensors");
@@ -222,19 +223,70 @@ StatusOr<std::unique_ptr<LlamaModel>> LlamaModel::Load(const std::string& direct
   std::unique_ptr<LlamaModel> model(new LlamaModel());
   EMBER_ASSIGN_OR_RETURN(model->config_, LlamaConfig::FromJson(config_text));
   model->file_ = std::move(weights_file).value();
-  EMBER_RETURN_IF_ERROR(model->Bind(model->file_.bytes()));
+  EMBER_RETURN_IF_ERROR(model->Finish(model->file_.bytes(), options));
   return model;
 }
 
-StatusOr<std::unique_ptr<LlamaModel>> LlamaModel::FromBytes(
-    std::string_view config_json, std::span<const std::byte> safetensors) {
+StatusOr<std::unique_ptr<LlamaModel>> LlamaModel::FromBytes(std::string_view config_json,
+                                                            std::span<const std::byte> safetensors,
+                                                            const LoadOptions& options) {
   std::unique_ptr<LlamaModel> model(new LlamaModel());
   EMBER_ASSIGN_OR_RETURN(model->config_, LlamaConfig::FromJson(config_json));
-  EMBER_RETURN_IF_ERROR(model->Bind(safetensors));
+  EMBER_RETURN_IF_ERROR(model->Finish(safetensors, options));
   return model;
 }
 
-Status LlamaModel::Bind(std::span<const std::byte> safetensors) {
+// Binds the weights and, for q8, quantizes the matrices. Widened f32 copies made only to be
+// quantized go in a scratch arena that is dropped at the end, so an 8-bit model really is smaller.
+Status LlamaModel::Finish(std::span<const std::byte> safetensors, const LoadOptions& options) {
+  if (!options.q8) {
+    EMBER_RETURN_IF_ERROR(Bind(safetensors, arena_));
+    parameter_count_ = CountParameters();
+    return Status::Ok();
+  }
+  Arena scratch;
+  EMBER_RETURN_IF_ERROR(Bind(safetensors, scratch));
+  parameter_count_ = CountParameters();
+  const std::byte* const file_begin = safetensors.data();
+  const std::byte* const file_end = safetensors.data() + safetensors.size();
+  // Tensors that stay f32 move out of the scratch arena, unless they point into the file itself.
+  const auto keep = [&](TensorView& view) -> Status {
+    if (view.element_count() == 0 || view.rank() == 0) return Status::Ok();
+    const auto* data = static_cast<const std::byte*>(view.raw_data());
+    if (data >= file_begin && data < file_end) return Status::Ok();
+    EMBER_ASSIGN_OR_RETURN(const Tensor copy, Tensor::CopyOf(arena_, view));
+    view = TensorView(copy);
+    return Status::Ok();
+  };
+  const auto quantize = [&](TensorView& view, Q8Matrix& q8) -> Status {
+    EMBER_ASSIGN_OR_RETURN(q8, QuantizeQ8(view, arena_));
+    view = TensorView();
+    return Status::Ok();
+  };
+  EMBER_ASSIGN_OR_RETURN(weights_.lm_head_q8, QuantizeQ8(weights_.lm_head, arena_));
+  weights_.lm_head = TensorView();
+  EMBER_RETURN_IF_ERROR(keep(weights_.embedding));
+  EMBER_RETURN_IF_ERROR(keep(weights_.final_norm));
+  for (LlamaLayer& layer : weights_.layers) {
+    EMBER_RETURN_IF_ERROR(keep(layer.attention_norm));
+    EMBER_RETURN_IF_ERROR(keep(layer.mlp_norm));
+    if (config_.qk_norm) {
+      EMBER_RETURN_IF_ERROR(keep(layer.query_norm));
+      EMBER_RETURN_IF_ERROR(keep(layer.key_norm));
+    }
+    EMBER_RETURN_IF_ERROR(quantize(layer.query, layer.query_q8));
+    EMBER_RETURN_IF_ERROR(quantize(layer.key, layer.key_q8));
+    EMBER_RETURN_IF_ERROR(quantize(layer.value, layer.value_q8));
+    EMBER_RETURN_IF_ERROR(quantize(layer.output, layer.output_q8));
+    EMBER_RETURN_IF_ERROR(quantize(layer.gate, layer.gate_q8));
+    EMBER_RETURN_IF_ERROR(quantize(layer.up, layer.up_q8));
+    EMBER_RETURN_IF_ERROR(quantize(layer.down, layer.down_q8));
+  }
+  q8_ = true;
+  return Status::Ok();
+}
+
+Status LlamaModel::Bind(std::span<const std::byte> safetensors, Arena& widen_into) {
   EMBER_ASSIGN_OR_RETURN(const Safetensors file, Safetensors::Parse(safetensors));
   const LlamaConfig& c = config_;
   std::vector<bool> used(file.tensors().size(), false);
@@ -255,19 +307,19 @@ Status LlamaModel::Bind(std::span<const std::byte> safetensors) {
       if (view.ok()) return view;
       // Misaligned in the file, so copy it somewhere aligned.
       EMBER_ASSIGN_OR_RETURN(const Tensor copy,
-                             Tensor::Uninitialized(arena_, DType::kF32, expected));
+                             Tensor::Uninitialized(widen_into, DType::kF32, expected));
       std::memcpy(copy.raw_data(), entry->bytes.data(), entry->bytes.size());
       return TensorView(copy);
     }
     if (entry->dtype == DType::kF16) {
       EMBER_ASSIGN_OR_RETURN(const Tensor widened,
-                             Tensor::Uninitialized(arena_, DType::kF32, expected));
+                             Tensor::Uninitialized(widen_into, DType::kF32, expected));
       F16ToF32(entry->bytes.data(), expected.element_count(), widened.data<float>());
       return TensorView(widened);
     }
     if (entry->dtype == DType::kBF16) {
       EMBER_ASSIGN_OR_RETURN(const Tensor widened,
-                             Tensor::Uninitialized(arena_, DType::kF32, expected));
+                             Tensor::Uninitialized(widen_into, DType::kF32, expected));
       BF16ToF32(entry->bytes.data(), expected.element_count(), widened.data<float>());
       return TensorView(widened);
     }
