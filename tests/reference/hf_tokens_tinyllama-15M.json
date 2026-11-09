@@ -1,0 +1,324 @@
+{
+ "about": "Token ids from Hugging Face tokenizers, made by scripts/hf_tokens.py",
+ "model": "nickypro/tinyllama-15M",
+ "made_with": {
+  "tokenizers": "0.23.3"
+ },
+ "add_special_tokens": false,
+ "cases": [
+  {
+   "text": "Once upon a time, there was a little girl named Lily. She wanted to play with her little dog",
+   "ids": [
+    9038,
+    2501,
+    263,
+    931,
+    29892,
+    727,
+    471,
+    263,
+    2217,
+    7826,
+    4257,
+    365,
+    2354,
+    29889,
+    2296,
+    5131,
+    304,
+    1708,
+    411,
+    902,
+    2217,
+    11203
+   ],
+   "decoded": "Once upon a time, there was a little girl named Lily. She wanted to play with her little dog"
+  },
+  {
+   "text": "Hello world",
+   "ids": [
+    15043,
+    3186
+   ],
+   "decoded": "Hello world"
+  },
+  {
+   "text": " Hello",
+   "ids": [
+    29871,
+    15043
+   ],
+   "decoded": " Hello"
+  },
+  {
+   "text": "  two leading spaces",
+   "ids": [
+    259,
+    1023,
+    8236,
+    8162
+   ],
+   "decoded": "  two leading spaces"
+  },
+  {
+   "text": "trailing space ",
+   "ids": [
+    25053,
+    2913,
+    29871
+   ],
+   "decoded": "trailing space "
+  },
+  {
+   "text": "many     spaces   inside",
+   "ids": [
+    1784,
+    268,
+    8162,
+    259,
+    2768
+   ],
+   "decoded": "many     spaces   inside"
+  },
+  {
+   "text": "line one\nline two\n\nline four",
+   "ids": [
+    1196,
+    697,
+    13,
+    1220,
+    1023,
+    13,
+    13,
+    1220,
+    3023
+   ],
+   "decoded": "line one\nline two\n\nline four"
+  },
+  {
+   "text": "tabs\tand\ttabs",
+   "ids": [
+    18859,
+    12,
+    392,
+    12,
+    21175
+   ],
+   "decoded": "tabs\tand\ttabs"
+  },
+  {
+   "text": "Numbers: 0 1 42 3.14159 2026-11-09",
+   "ids": [
+    11848,
+    2596,
+    29901,
+    29871,
+    29900,
+    29871,
+    29896,
+    29871,
+    29946,
+    29906,
+    29871,
+    29941,
+    29889,
+    29896,
+    29946,
+    29896,
+    29945,
+    29929,
+    29871,
+    29906,
+    29900,
+    29906,
+    29953,
+    29899,
+    29896,
+    29896,
+    29899,
+    29900,
+    29929
+   ],
+   "decoded": "Numbers: 0 1 42 3.14159 2026-11-09"
+  },
+  {
+   "text": "Punctuation!?.,;:'\"()[]{}<>@#$%^&*-_=+/\\|~`",
+   "ids": [
+    349,
+    18049,
+    29884,
+    362,
+    29991,
+    29973,
+    1696,
+    29936,
+    11283,
+    29908,
+    580,
+    2636,
+    8875,
+    25299,
+    29992,
+    29937,
+    29938,
+    29995,
+    29985,
+    29987,
+    29930,
+    29899,
+    29918,
+    29922,
+    29974,
+    29914,
+    7893,
+    30022,
+    29952
+   ],
+   "decoded": "Punctuation!?.,;:'\"()[]{}<>@#$%^&*-_=+/\\|~`"
+  },
+  {
+   "text": "naïve café résumé",
+   "ids": [
+    1055,
+    30085,
+    345,
+    274,
+    28059,
+    6896,
+    398,
+    29948
+   ],
+   "decoded": "naïve café résumé"
+  },
+  {
+   "text": "Straße über Größe",
+   "ids": [
+    22667,
+    2939,
+    1632,
+    29997,
+    5831
+   ],
+   "decoded": "Straße über Größe"
+  },
+  {
+   "text": "日本語のテキスト",
+   "ids": [
+    29871,
+    30325,
+    30346,
+    30968,
+    30199,
+    30572,
+    30454,
+    30255,
+    30279
+   ],
+   "decoded": "日本語のテキスト"
+  },
+  {
+   "text": "Привет, мир",
+   "ids": [
+    7203,
+    7616,
+    29892,
+    4157,
+    29927
+   ],
+   "decoded": "Привет, мир"
+  },
+  {
+   "text": "नमस्ते दुनिया",
+   "ids": [
+    29871,
+    30424,
+    30485,
+    30489,
+    30296,
+    30475,
+    30569,
+    29871,
+    30694,
+    30702,
+    30424,
+    30436,
+    30640,
+    30269
+   ],
+   "decoded": "नमस्ते दुनिया"
+  },
+  {
+   "text": "emoji 🔥🚀 and 👩‍💻",
+   "ids": [
+    953,
+    29877,
+    2397,
+    29871,
+    243,
+    162,
+    151,
+    168,
+    243,
+    162,
+    157,
+    131,
+    322,
+    29871,
+    243,
+    162,
+    148,
+    172,
+    30722,
+    243,
+    162,
+    149,
+    190
+   ],
+   "decoded": "emoji 🔥🚀 and 👩‍💻"
+  },
+  {
+   "text": "a",
+   "ids": [
+    263
+   ],
+   "decoded": "a"
+  },
+  {
+   "text": "",
+   "ids": [],
+   "decoded": ""
+  },
+  {
+   "text": "<s> is not special in plain text",
+   "ids": [
+    1,
+    338,
+    451,
+    4266,
+    297,
+    8656,
+    1426
+   ],
+   "decoded": "<s> is not special in plain text"
+  },
+  {
+   "text": "unbelievable antidisestablishmentarianism",
+   "ids": [
+    443,
+    6596,
+    10384,
+    519,
+    3677,
+    333,
+    275,
+    342,
+    370,
+    1674,
+    358,
+    13956,
+    1608
+   ],
+   "decoded": "unbelievable antidisestablishmentarianism"
+  }
+ ]
+}
