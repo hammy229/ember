@@ -596,6 +596,140 @@ input[type="range"]:active::-moz-range-thumb {
   color: var(--ember-strong);
 }
 
+/* Write live */
+.write-load {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+}
+
+.write-load p {
+  max-width: 34em;
+  color: var(--graphite);
+  font-size: 15px;
+}
+
+.write-load button:disabled {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+.write-prompt {
+  display: grid;
+  gap: 8px;
+}
+
+.write-prompt span {
+  color: var(--graphite);
+  font-size: 15px;
+}
+
+.write-prompt input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  font: inherit;
+  font-family: var(--serif);
+  font-size: 19px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+}
+
+.write-prompt input:focus-visible {
+  border-color: var(--ember-ink);
+}
+
+.write-text {
+  margin-top: 32px;
+  min-height: 9em;
+  padding: 24px 26px;
+  background: var(--paper-deep);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  font-family: var(--serif);
+  font-size: 19px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.write-given {
+  color: var(--graphite);
+}
+
+/* Darker means the model was less sure of that token. */
+.tok {
+  border-radius: 2px;
+  transition: background 0.3s linear;
+}
+
+.tok-1 {
+  background: #fdeee4;
+}
+
+.tok-2 {
+  background: var(--ember-pale);
+}
+
+.tok-3 {
+  background: #f9b98f;
+}
+
+.write-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 1px;
+  vertical-align: -0.15em;
+  background: var(--ember);
+  animation: caret 0.9s steps(1) infinite;
+}
+
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+.write-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  color: var(--graphite);
+  font-family: var(--mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.write-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.write-legend i {
+  display: inline-block;
+  width: 16px;
+  height: 12px;
+  border: 1px solid var(--rule);
+}
+
+@media (max-width: 640px) {
+  .write-load {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .write-text {
+    padding: 18px;
+    font-size: 17px;
+  }
+}
+
 /* Bars */
 .bars {
   margin-top: clamp(40px, 5vw, 72px);

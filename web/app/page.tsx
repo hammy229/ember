@@ -3,6 +3,7 @@ import { LiveChecks } from "./LiveChecks";
 import { Rail } from "./Rail";
 import { SoftmaxLab } from "./SoftmaxLab";
 import { SpeedRun } from "./SpeedRun";
+import { WriteLive } from "./WriteLive";
 
 // From docs/benchmarks/2026-11-06-m4.txt, made by scripts/bench.sh. Fastest of 10 runs at 1024 x 1024.
 const PRODUCT_TIMES = [
@@ -63,11 +64,14 @@ export default function Home() {
               animation. Your browser is computing it right now, with the same math attention runs on.
             </p>
             <p className="hero-honest">
-              On a laptop it now loads a 15M parameter Llama and runs it all the way to logits. It
-              does not generate text yet, and no model runs in this tab yet. Text generation is the
-              next milestone.
+              It loads a 15M parameter Llama and writes stories with it, in this tab, on your
+              machine. The model is small, so the stories are simple. The engine underneath is the
+              point.
             </p>
             <p className="hero-links">
+              <a className="arrow" href="#write">
+                Watch it write
+              </a>
               <a className="arrow" href="#softmax">
                 Drag the math yourself
               </a>
@@ -77,6 +81,22 @@ export default function Home() {
             </p>
           </div>
           <CoalField />
+        </section>
+
+        <section className="band split" id="write">
+          <div className="band-head">
+            <h2>It writes here, and shows where it was unsure.</h2>
+            <p>
+              Every word below comes from the C++ engine running in your browser, with no server. Each
+              token is shaded by the entropy of the model&apos;s choice: pale where it was sure, dark
+              where many next words looked about as good.
+            </p>
+            <p>
+              That signal is free to an engine that owns its logits, and it is what a local-first
+              router needs to decide when to hand a request to a bigger model.
+            </p>
+          </div>
+          <WriteLive />
         </section>
 
         <section className="band split" id="softmax">

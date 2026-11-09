@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 const LINKS = [
   { href: "#grid", label: "Live grid" },
+  { href: "#write", label: "Write" },
   { href: "#softmax", label: "Softmax" },
   { href: "#speed", label: "Speed" },
   { href: "#model", label: "Model" },
