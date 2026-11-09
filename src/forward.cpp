@@ -55,6 +55,16 @@ Status RunLayer(const LlamaConfig& c, const LlamaLayer& layer, const Tensor& x,
   EMBER_ASSIGN_OR_RETURN(const Tensor q3, q.Reshape(q_heads));
   EMBER_ASSIGN_OR_RETURN(const Tensor k3, k.Reshape(kv_heads));
   EMBER_ASSIGN_OR_RETURN(const Tensor v3, v.Reshape(kv_heads));
+  if (c.qk_norm) {
+    // Qwen3 normalizes each head's query and key on its own, before RoPE: viewed as
+    // [tokens * heads, head_dim], that is one RMSNorm per row.
+    EMBER_ASSIGN_OR_RETURN(const Shape q_rows, Shape::Make({tokens * c.head_count, c.head_dim}));
+    EMBER_ASSIGN_OR_RETURN(const Shape k_rows, Shape::Make({tokens * c.kv_head_count, c.head_dim}));
+    EMBER_ASSIGN_OR_RETURN(const Tensor q_flat, q.Reshape(q_rows));
+    EMBER_ASSIGN_OR_RETURN(const Tensor k_flat, k.Reshape(k_rows));
+    EMBER_RETURN_IF_ERROR(RmsNorm(q_flat, layer.query_norm, c.rms_norm_eps, q_flat));
+    EMBER_RETURN_IF_ERROR(RmsNorm(k_flat, layer.key_norm, c.rms_norm_eps, k_flat));
+  }
   EMBER_RETURN_IF_ERROR(ApplyRope(q3, first_position, c.rope_theta));
   EMBER_RETURN_IF_ERROR(ApplyRope(k3, first_position, c.rope_theta));
 

@@ -71,6 +71,18 @@ void Rope(Matrix& x, std::size_t heads, std::size_t d, double theta) {
   }
 }
 
+// Qwen3's RMSNorm over each head's d values on its own, with one weight shared by every head.
+void HeadNorm(Matrix& x, std::size_t heads, std::size_t d, const TensorView& weight, double eps) {
+  for (auto& row : x) {
+    for (std::size_t h = 0; h < heads; ++h) {
+      double squares = 0;
+      for (std::size_t e = 0; e < d; ++e) squares += row[h * d + e] * row[h * d + e];
+      const double inverse = 1.0 / std::sqrt(squares / static_cast<double>(d) + eps);
+      for (std::size_t e = 0; e < d; ++e) row[h * d + e] *= inverse * W(weight, e);
+    }
+  }
+}
+
 Matrix ReferenceForward(const LlamaModel& model, const std::vector<std::int32_t>& tokens) {
   const LlamaConfig& c = model.config();
   const auto& w = model.weights();
@@ -85,6 +97,10 @@ Matrix ReferenceForward(const LlamaModel& model, const std::vector<std::int32_t>
     const Matrix h = Norm(x, layer.attention_norm, c.rms_norm_eps);
     Matrix q = Project(h, layer.query), k = Project(h, layer.key);
     const Matrix v = Project(h, layer.value);
+    if (c.qk_norm) {
+      HeadNorm(q, c.head_count, d, layer.query_norm, c.rms_norm_eps);
+      HeadNorm(k, c.kv_head_count, d, layer.key_norm, c.rms_norm_eps);
+    }
     Rope(q, c.head_count, d, c.rope_theta);
     Rope(k, c.kv_head_count, d, c.rope_theta);
     Matrix attended(n, std::vector<double>(c.head_count * d, 0.0));
@@ -209,6 +225,21 @@ TEST(Forward, MatchesTheReferenceWithOtherRopeAndNormSettingsOverALongSequence) 
   std::vector<std::int32_t> tokens;
   for (std::int32_t i = 0; i < 40; ++i) tokens.push_back((i * 7) % 11);
   ExpectMatchesReference(options, tokens);
+}
+
+TEST(Forward, MatchesTheReferenceForAQwen3StyleModel) {
+  TinyLlamaOptions options;
+  options.qk_norm = true;
+  options.hidden = 16;
+  options.heads = 4;
+  options.kv_heads = 2;
+  options.head_dim = 8;  // wider heads than hidden / heads, as Qwen3 0.6B has
+  options.tie = true;
+  options.bf16 = true;
+  options.rope_theta = "1000000.0";
+  options.rms_norm_eps = "1e-06";
+  options.seed = 12;
+  ExpectMatchesReference(options, {3, 1, 4, 1, 5, 9, 2, 6});
 }
 
 TEST(Forward, MatchesTheReferenceForOneToken) { ExpectMatchesReference({}, {4}); }
@@ -361,6 +392,17 @@ TEST(ForwardCached, RefusesWhatItCannotRunAndKeepsTheCache) {
   EXPECT_FALSE(
       ember::ForwardCached(*different.model, std::vector<std::int32_t>{1}, **cache, arena, false)
           .ok());
+}
+
+TEST(ForwardCached, MatchesForwardForAQwen3StyleModel) {
+  TinyLlamaOptions options;
+  options.qk_norm = true;
+  options.hidden = 16;
+  options.heads = 4;
+  options.kv_heads = 2;
+  options.head_dim = 8;
+  options.seed = 13;
+  ExpectCachedMatchesForward(options, {3, 1, 4, 1, 5, 9, 2, 6}, {4, 1, 1, 2});
 }
 
 }  // namespace

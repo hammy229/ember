@@ -115,7 +115,27 @@ StatusOr<LlamaConfig> LlamaConfig::FromJson(std::string_view json_text) {
   const Json& json = *parsed;
   if (!json.is_object()) return BadConfig("not a JSON object");
 
-  EMBER_RETURN_IF_ERROR(RequireString(json, "model_type", "llama"));
+  const Json* model_type = json.Find("model_type");
+  if (model_type == nullptr || !model_type->is_string() ||
+      (model_type->as_string() != "llama" && model_type->as_string() != "qwen3")) {
+    return BadConfig("model_type must be \"llama\" or \"qwen3\"");
+  }
+  const bool qwen3 = model_type->as_string() == "qwen3";
+  if (qwen3) {
+    // Qwen3 can use sliding-window attention in some layers. Ember attends to every position.
+    const Json* sliding = Present(json, "use_sliding_window");
+    if (sliding != nullptr && !(sliding->is_bool() && !sliding->as_bool())) {
+      return BadConfig("sliding-window attention is not supported");
+    }
+    if (const Json* types = Present(json, "layer_types"); types != nullptr) {
+      if (!types->is_array()) return BadConfig("layer_types must be an array");
+      for (const Json& type : types->items()) {
+        if (!type.is_string() || type.as_string() != "full_attention") {
+          return BadConfig("only full_attention layers are supported");
+        }
+      }
+    }
+  }
   if (Present(json, "hidden_act") != nullptr) {
     EMBER_RETURN_IF_ERROR(RequireString(json, "hidden_act", "silu"));
   }
@@ -127,6 +147,7 @@ StatusOr<LlamaConfig> LlamaConfig::FromJson(std::string_view json_text) {
   }
 
   LlamaConfig config;
+  config.qk_norm = qwen3;
   EMBER_ASSIGN_OR_RETURN(config.vocab_size, ReadSize(json, "vocab_size", kMaxVocab));
   EMBER_ASSIGN_OR_RETURN(config.hidden_size, ReadSize(json, "hidden_size", kMaxWidth));
   EMBER_ASSIGN_OR_RETURN(config.intermediate_size,
@@ -177,6 +198,9 @@ std::size_t LlamaModel::parameter_count() const {
          {&layer.attention_norm, &layer.query, &layer.key, &layer.value, &layer.output,
           &layer.mlp_norm, &layer.gate, &layer.up, &layer.down}) {
       count += weight->element_count();
+    }
+    if (config_.qk_norm) {
+      count += layer.query_norm.element_count() + layer.key_norm.element_count();
     }
   }
   return count;
@@ -277,6 +301,12 @@ Status LlamaModel::Bind(std::span<const std::byte> safetensors) {
         layer.up, bind(prefix + "mlp.up_proj.weight", {c.intermediate_size, c.hidden_size}));
     EMBER_ASSIGN_OR_RETURN(
         layer.down, bind(prefix + "mlp.down_proj.weight", {c.hidden_size, c.intermediate_size}));
+    if (c.qk_norm) {
+      EMBER_ASSIGN_OR_RETURN(layer.query_norm,
+                             bind(prefix + "self_attn.q_norm.weight", {c.head_dim}));
+      EMBER_ASSIGN_OR_RETURN(layer.key_norm,
+                             bind(prefix + "self_attn.k_norm.weight", {c.head_dim}));
+    }
   }
   EMBER_ASSIGN_OR_RETURN(weights_.final_norm, bind("model.norm.weight", {c.hidden_size}));
   if (c.tie_word_embeddings) {

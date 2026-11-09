@@ -30,10 +30,12 @@ struct LlamaConfig {
   float rope_theta = 0;
   // The output layer reuses the token embedding instead of having weights of its own.
   bool tie_word_embeddings = false;
+  // Qwen3: each head's queries and keys go through their own RMSNorm before RoPE.
+  bool qk_norm = false;
 
-  // Refuses anything the engine cannot run exactly as Hugging Face would, rather than running it
-  // slightly wrong: another architecture, another activation, RoPE scaling, or sizes that do not
-  // divide evenly.
+  // Reads "llama" and "qwen3" configs. Refuses anything the engine cannot run exactly as Hugging
+  // Face would, rather than running it slightly wrong: another architecture, another activation,
+  // RoPE scaling, sliding-window attention, or sizes that do not divide evenly.
   static StatusOr<LlamaConfig> FromJson(std::string_view json);
 };
 
@@ -49,6 +51,8 @@ struct LlamaLayer {
   TensorView gate;            // [intermediate, hidden]
   TensorView up;              // [intermediate, hidden]
   TensorView down;            // [hidden, intermediate]
+  TensorView query_norm;      // [head_dim], only with qk_norm
+  TensorView key_norm;        // [head_dim], only with qk_norm
 };
 
 struct LlamaWeights {

@@ -29,6 +29,8 @@ struct TinyLlamaOptions {
   bool f16 = false;
   bool bf16 = false;
   std::uint32_t seed = 1;
+  // A Qwen3 config: per-head RMSNorm on queries and keys.
+  bool qk_norm = false;
 };
 
 // f32 to f16 for normal numbers, rounding toward zero. Tiny values become zero. Only for tests.
@@ -43,13 +45,14 @@ inline std::uint16_t ToF16(float value) {
 }
 
 inline std::string TinyLlamaConfig(const TinyLlamaOptions& o) {
-  return R"({"model_type": "llama", "hidden_act": "silu", "rms_norm_eps": )" + o.rms_norm_eps +
-         R"(, "rope_theta": )" + o.rope_theta + R"(, "rope_scaling": null, "vocab_size": )" +
-         std::to_string(o.vocab) + R"(, "hidden_size": )" + std::to_string(o.hidden) +
-         R"(, "intermediate_size": )" + std::to_string(o.intermediate) +
-         R"(, "num_hidden_layers": )" + std::to_string(o.layers) + R"(, "num_attention_heads": )" +
-         std::to_string(o.heads) + R"(, "num_key_value_heads": )" + std::to_string(o.kv_heads) +
-         R"(, "max_position_embeddings": )" + std::to_string(o.max_positions) +
+  return R"({"model_type": ")" + std::string(o.qk_norm ? "qwen3" : "llama") +
+         R"(", "hidden_act": "silu", "rms_norm_eps": )" + o.rms_norm_eps + R"(, "rope_theta": )" +
+         o.rope_theta + R"(, "rope_scaling": null, "vocab_size": )" + std::to_string(o.vocab) +
+         R"(, "hidden_size": )" + std::to_string(o.hidden) + R"(, "intermediate_size": )" +
+         std::to_string(o.intermediate) + R"(, "num_hidden_layers": )" + std::to_string(o.layers) +
+         R"(, "num_attention_heads": )" + std::to_string(o.heads) + R"(, "num_key_value_heads": )" +
+         std::to_string(o.kv_heads) + R"(, "max_position_embeddings": )" +
+         std::to_string(o.max_positions) +
          (o.head_dim != 0 ? R"(, "head_dim": )" + std::to_string(o.head_dim) : std::string()) +
          R"(, "tie_word_embeddings": )" + (o.tie ? "true" : "false") + "}";
 }
@@ -91,6 +94,10 @@ inline std::vector<std::byte> TinyLlamaWeights(const TinyLlamaOptions& o) {
     add(p + "mlp.gate_proj.weight", {o.intermediate, o.hidden}, 0);
     add(p + "mlp.up_proj.weight", {o.intermediate, o.hidden}, 0);
     add(p + "mlp.down_proj.weight", {o.hidden, o.intermediate}, 0);
+    if (o.qk_norm) {
+      add(p + "self_attn.q_norm.weight", {head_dim}, 1);
+      add(p + "self_attn.k_norm.weight", {head_dim}, 1);
+    }
   }
   add("model.norm.weight", {o.hidden}, 1);
   if (!o.tie) add("lm_head.weight", {o.vocab, o.hidden}, 0);
