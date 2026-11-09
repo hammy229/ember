@@ -14,6 +14,7 @@
 #include "ember/forward.h"
 #include "ember/generate.h"
 #include "ember/llama.h"
+#include "ember/threads.h"
 #include "ember/timer.h"
 #include "ember/tokenizer.h"
 #include "ember/version.h"
@@ -34,6 +35,7 @@ int Usage() {
                "         --top-p P    keep the likeliest tokens up to probability P (default 1)\n"
                "         --seed S     random seed (default 0)\n"
                "         --stats      show each token's entropy and top-2 margin afterwards\n"
+               "         --threads N  threads for the math (default 1)\n"
                "         --chat       wrap the prompt as one user turn in the model's chat format\n"
                "                      (Qwen3, with thinking turned off)\n";
   return 2;
@@ -151,6 +153,10 @@ int RunGenerate(int argc, char** argv) {
       show_stats = true;
     } else if (arg == "--chat") {
       chat = true;
+    } else if (arg == "--threads" && has_value) {
+      std::size_t threads = 0;
+      ok = ParseNumber(argv[++i], threads) && threads >= 1 && threads <= 256;
+      if (ok) ember::SetThreadCount(threads);
     } else if (i == argc - 1 && !arg.starts_with("--")) {
       prompt = arg;
     } else {
