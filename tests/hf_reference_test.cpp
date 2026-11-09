@@ -232,4 +232,47 @@ TEST(HfReferenceTest, EmberMatchesHuggingFace) {
   EXPECT_EQ(positions_checked, 156U);
 }
 
+// The KV cache on the real model across its whole context, one token at a time after a prompt, so
+// positions past the 128 the reference covers are checked too.
+TEST(HfReferenceTest, CachedGenerationMatchesForwardOverTheWholeContext) {
+  const char* directory = std::getenv("EMBER_MODEL_DIR");
+  if (directory == nullptr || *directory == '\0') {
+    const char* required = std::getenv("EMBER_REQUIRE_MODEL");
+    if (required != nullptr && std::string_view(required) == "1") {
+      FAIL() << "EMBER_REQUIRE_MODEL is 1 but EMBER_MODEL_DIR is not set";
+    }
+    GTEST_SKIP() << "set EMBER_MODEL_DIR to models/tinyllama-15M (scripts/fetch-model.sh)";
+  }
+  const auto model = ember::LlamaModel::Load(directory);
+  ASSERT_TRUE(model.ok()) << model.status().ToString();
+  const std::size_t context = (*model)->config().max_positions;
+  std::vector<std::int32_t> tokens(context);
+  for (std::size_t i = 0; i < context; ++i) {
+    tokens[i] = static_cast<std::int32_t>((i * 7919 + 13) % (*model)->config().vocab_size);
+  }
+  ember::Arena arena;
+  const auto full = ember::Forward(**model, tokens, arena);
+  ASSERT_TRUE(full.ok()) << full.status().ToString();
+  auto cache = ember::KvCache::Make((*model)->config(), context);
+  ASSERT_TRUE(cache.ok()) << cache.status().ToString();
+  const std::size_t vocab = (*model)->config().vocab_size;
+  const std::size_t prompt = 20;
+  double worst = 0;
+  for (std::size_t start = 0; start < context;) {
+    const std::size_t count = start == 0 ? prompt : 1;
+    ember::Arena scratch;
+    const auto logits =
+        ember::ForwardCached(**model, std::span<const std::int32_t>(tokens.data() + start, count),
+                             **cache, scratch, true);
+    ASSERT_TRUE(logits.ok()) << logits.status().ToString();
+    const std::size_t row = start + count - 1;
+    for (std::size_t i = 0; i < vocab; ++i) {
+      worst = std::max(
+          worst, std::abs(static_cast<double>(logits->at<float>(0, i)) - full->at<float>(row, i)));
+    }
+    start += count;
+  }
+  EXPECT_LT(worst, 1e-4) << "largest difference between cached and uncached logits";
+}
+
 }  // namespace
