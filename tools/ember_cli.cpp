@@ -2,6 +2,7 @@
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -13,6 +14,7 @@
 
 #include "ember/forward.h"
 #include "ember/generate.h"
+#include "ember/json.h"
 #include "ember/llama.h"
 #include "ember/threads.h"
 #include "ember/timer.h"
@@ -22,22 +24,26 @@
 namespace {
 
 int Usage() {
-  std::cerr << "usage: ember                    print the version\n"
-               "       ember inspect MODEL_DIR  load a model and describe it\n"
-               "       ember logits MODEL_DIR [--out FILE] TOKEN_ID...\n"
-               "                                run the model and show the likeliest next tokens;\n"
-               "                                --out saves every logit as little-endian f32\n"
-               "       ember generate MODEL_DIR [options] PROMPT\n"
-               "                                continue the prompt, printing text as it comes\n"
-               "         --tokens N   new tokens at most (default 128)\n"
-               "         --temp T     temperature, 0 for greedy (default 0)\n"
-               "         --top-k K    keep the K likeliest tokens (default all)\n"
-               "         --top-p P    keep the likeliest tokens up to probability P (default 1)\n"
-               "         --seed S     random seed (default 0)\n"
-               "         --stats      show each token's entropy and top-2 margin afterwards\n"
-               "         --threads N  threads for the math (default 1)\n"
-               "         --chat       wrap the prompt as one user turn in the model's chat format\n"
-               "                      (Qwen3, with thinking turned off)\n";
+  std::cerr
+      << "usage: ember                    print the version\n"
+         "       ember inspect MODEL_DIR  load a model and describe it\n"
+         "       ember logits MODEL_DIR [--out FILE] TOKEN_ID...\n"
+         "                                run the model and show the likeliest next tokens;\n"
+         "                                --out saves every logit as little-endian f32\n"
+         "       ember generate MODEL_DIR [options] PROMPT\n"
+         "                                continue the prompt, printing text as it comes\n"
+         "         --tokens N   new tokens at most (default 128)\n"
+         "         --temp T     temperature, 0 for greedy (default 0)\n"
+         "         --top-k K    keep the K likeliest tokens (default all)\n"
+         "         --top-p P    keep the likeliest tokens up to probability P (default 1)\n"
+         "         --seed S     random seed (default 0)\n"
+         "         --stats      show each token's entropy and top-2 margin afterwards\n"
+         "         --threads N  threads for the math (default 1)\n"
+         "         --chat       wrap the prompt as one user turn in the model's chat format\n"
+         "                      (Qwen3, with thinking turned off)\n"
+         "       ember batch MODEL_DIR IN.jsonl OUT.jsonl [--tokens N] [--threads N] [--chat]\n"
+         "                                answer each {\"id\", \"prompt\"} line greedily, writing\n"
+         "                                the text and every token's entropy and margin\n";
   return 2;
 }
 
@@ -127,6 +133,138 @@ bool ParseNumber(std::string_view text, T& value) {
   return error == std::errc() && end == text.data() + text.size();
 }
 
+// Text as a JSON string, quotes included.
+std::string JsonString(std::string_view text) {
+  std::string out = "\"";
+  for (const char c : text) {
+    switch (c) {
+      case '"':
+        out += "\\\"";
+        break;
+      case '\\':
+        out += "\\\\";
+        break;
+      case '\n':
+        out += "\\n";
+        break;
+      case '\r':
+        out += "\\r";
+        break;
+      case '\t':
+        out += "\\t";
+        break;
+      default:
+        if (static_cast<unsigned char>(c) < 0x20) {
+          char escaped[8];
+          std::snprintf(escaped, sizeof escaped, "\\u%04x", static_cast<unsigned>(c));
+          out += escaped;
+        } else {
+          out += c;
+        }
+    }
+  }
+  return out + "\"";
+}
+
+// One user turn in Qwen3's chat format, with thinking turned off.
+std::string ChatPrompt(std::string_view prompt) {
+  return "<|im_start|>user\n" + std::string(prompt) +
+         "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
+}
+
+// Loads the model once and answers many prompts, for evaluations like scripts/route_eval.py.
+int RunBatch(int argc, char** argv) {
+  if (argc < 5) return Usage();
+  const std::string directory = argv[2];
+  const std::string in_path = argv[3];
+  const std::string out_path = argv[4];
+  ember::GenerateOptions options;
+  options.max_new_tokens = 256;
+  bool chat = false;
+  for (int i = 5; i < argc; ++i) {
+    const std::string_view arg = argv[i];
+    bool ok = true;
+    if (arg == "--tokens" && i + 1 < argc) {
+      ok = ParseNumber(argv[++i], options.max_new_tokens);
+    } else if (arg == "--threads" && i + 1 < argc) {
+      std::size_t threads = 0;
+      ok = ParseNumber(argv[++i], threads) && threads >= 1 && threads <= 256;
+      if (ok) ember::SetThreadCount(threads);
+    } else if (arg == "--chat") {
+      chat = true;
+    } else {
+      ok = false;
+    }
+    if (!ok) return Usage();
+  }
+  const auto model = ember::LlamaModel::Load(directory);
+  if (!model.ok()) {
+    std::cerr << "error: " << model.status().ToString() << '\n';
+    return 1;
+  }
+  const auto tokenizer = ember::Tokenizer::Load(directory + "/tokenizer.json");
+  if (!tokenizer.ok()) {
+    std::cerr << "error: " << tokenizer.status().ToString() << '\n';
+    return 1;
+  }
+  if (chat && tokenizer->kind() != ember::Tokenizer::Kind::kByteLevel) {
+    std::cerr << "error: --chat needs a model with a chat format, like Qwen3\n";
+    return 1;
+  }
+  options.stop_tokens = tokenizer->stop_ids();
+  std::ifstream in(in_path);
+  std::ofstream out(out_path, std::ios::trunc);
+  if (!in || !out) {
+    std::cerr << "error: could not open " << (in ? out_path : in_path) << '\n';
+    return 1;
+  }
+  std::string line;
+  std::size_t done = 0;
+  while (std::getline(in, line)) {
+    if (line.empty()) continue;
+    const auto record = ember::Json::Parse(line);
+    const bool object = record.ok() && record->is_object();
+    const ember::Json* id = object ? record->Find("id") : nullptr;
+    const ember::Json* prompt = object ? record->Find("prompt") : nullptr;
+    if (id == nullptr || prompt == nullptr || !prompt->is_string() ||
+        !(id->is_string() || id->as_uint64().has_value())) {
+      std::cerr << "error: each line needs an \"id\" and a string \"prompt\"\n";
+      return 1;
+    }
+    const std::string text = chat ? ChatPrompt(prompt->as_string()) : prompt->as_string();
+    const std::vector<std::int32_t> ids = tokenizer->Encode(text, true);
+    const ember::Stopwatch stopwatch;
+    const auto result = ember::Generate(**model, ids, options);
+    const double ms = stopwatch.ElapsedMs();
+    if (!result.ok()) {
+      std::cerr << "error: " << result.status().ToString() << '\n';
+      return 1;
+    }
+    std::vector<std::int32_t> reply;
+    for (const auto& t : result->tokens) {
+      if (std::find(options.stop_tokens.begin(), options.stop_tokens.end(), t.id) ==
+          options.stop_tokens.end()) {
+        reply.push_back(t.id);
+      }
+    }
+    const std::string id_json =
+        id->is_string() ? JsonString(id->as_string()) : std::to_string(*id->as_uint64());
+    out << "{\"id\": " << id_json << ", \"text\": " << JsonString(tokenizer->Decode(reply).value())
+        << ", \"prompt_tokens\": " << ids.size() << ", \"ms\": " << ms
+        << ", \"stop\": " << static_cast<int>(result->stop) << ", \"tokens\": [";
+    for (std::size_t i = 0; i < result->tokens.size(); ++i) {
+      const auto& t = result->tokens[i];
+      out << (i ? ", " : "") << "[" << t.id << ", " << t.stats.entropy << ", " << t.stats.margin
+          << ", " << t.stats.top1_prob << "]";
+    }
+    out << "]}\n" << std::flush;
+    ++done;
+    std::cerr << "\r" << done << " done" << std::flush;
+  }
+  std::cerr << '\n';
+  return 0;
+}
+
 int RunGenerate(int argc, char** argv) {
   if (argc < 4) return Usage();
   const std::string directory = argv[2];
@@ -181,8 +319,7 @@ int RunGenerate(int argc, char** argv) {
       std::cerr << "error: --chat needs a model with a chat format, like Qwen3\n";
       return 1;
     }
-    prompt = "<|im_start|>user\n" + prompt +
-             "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
+    prompt = ChatPrompt(prompt);
   }
   const std::vector<std::int32_t> prompt_ids = tokenizer->Encode(prompt, true);
   options.stop_tokens = tokenizer->stop_ids();
@@ -248,5 +385,6 @@ int main(int argc, char** argv) {
   if (command == "inspect" && argc == 3) return Inspect(argv[2]);
   if (command == "logits") return RunLogits(argc, argv);
   if (command == "generate") return RunGenerate(argc, argv);
+  if (command == "batch") return RunBatch(argc, argv);
   return Usage();
 }
