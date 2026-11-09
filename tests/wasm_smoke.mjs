@@ -66,3 +66,48 @@ assert.ok(Number.isNaN(ember._ember_matmul_bench(2049, 1)));
 assert.equal(softmaxRow([1, 2, 3]).code, 0);
 
 console.log(`wasm smoke test passed: ember ${version}`);
+
+// Text generation with the real tiny model, when it has been fetched (scripts/fetch-model.sh). The
+// browser build must write exactly what the native build writes for the same greedy prompt.
+const modelDir = process.env.EMBER_MODEL_DIR;
+if (modelDir) {
+  const copyIn = (bytes) => {
+    const pointer = ember._malloc(Math.max(bytes.length, 1));
+    ember.HEAPU8.set(bytes, pointer);
+    return pointer;
+  };
+  const files = ["config.json", "model.safetensors", "tokenizer.json"].map((name) =>
+    readFileSync(path.join(modelDir, name)),
+  );
+  const pointers = files.map(copyIn);
+  const loaded = ember._ember_load_model(
+    pointers[0], files[0].length, pointers[1], files[1].length, pointers[2], files[2].length,
+  );
+  pointers.forEach((p) => ember._free(p));
+  assert.equal(loaded, 0, ember.UTF8ToString(ember._ember_last_error()));
+
+  const prompt = "Once upon a time";
+  const promptBytes = ember.lengthBytesUTF8(prompt) + 1;
+  const promptPointer = ember._malloc(promptBytes);
+  ember.stringToUTF8(prompt, promptPointer, promptBytes);
+  const promptTokens = ember._ember_generate_start(promptPointer, 40, 0, 1, 0);
+  ember._free(promptPointer);
+  assert.equal(promptTokens, 5, ember.UTF8ToString(ember._ember_last_error()));
+
+  let steps = 0;
+  let code;
+  while ((code = ember._ember_generate_step()) === 1) {
+    steps += 1;
+    const last = ember.HEAPF32.subarray(ember._ember_last_token() / 4, ember._ember_last_token() / 4 + 5);
+    assert.ok(last[1] >= 0, "entropy is never negative");
+    assert.ok(last[2] >= 0 && last[2] <= 1, "the margin is a difference of probabilities");
+  }
+  assert.equal(code, 0, ember.UTF8ToString(ember._ember_last_error()));
+  assert.equal(steps, 40);
+  assert.equal(
+    ember.UTF8ToString(ember._ember_generated_text()),
+    "Once upon a time, there was a little girl named Lily. She loved to play outside in the " +
+      "sunshine. One day, she saw a big, red ball in the sky. It was the sun!",
+  );
+  console.log("wasm generation matches the native build");
+}

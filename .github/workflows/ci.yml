@@ -111,8 +111,17 @@ jobs:
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # The smoke test also generates text in WebAssembly and compares it with the native build.
+      EMBER_MODEL_DIR: ${{ github.workspace }}/models/tinyllama-15M
     steps:
       - uses: actions/checkout@v4
+      - name: Cache the test model
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: model-${{ hashFiles('scripts/fetch-model.sh') }}
+      - run: ./scripts/fetch-model.sh
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
