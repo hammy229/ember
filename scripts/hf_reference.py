@@ -20,7 +20,12 @@ A full row of logits is 32,000 floats, so the file keeps, for each position:
 
 - the 10 highest logits and their token ids, which is what sampling cares about,
 - every 500th logit (64 of them), spread across the whole vocabulary,
-- the log of the sum of exp over all 32,000 logits, which moves if any single logit is wrong.
+- the log of the sum of exp over all 32,000 logits, which moves if a likely token's logit is wrong,
+- the mean and root mean square of all 32,000, which move if many logits are off together.
+
+What it cannot see is one unlikely token, outside the top 10 and off the every-500th grid, with a
+wrong logit: that barely moves any of the above. The NumPy check in scripts/reference_logits.py
+compares every logit, so the two together cover it.
 
 Run it with uv, which installs the pinned versions above into a cache the first time:
 
@@ -109,6 +114,8 @@ def main():
                     "top_logits": rounded(row[top]),
                     "sampled": rounded(row[::STRIDE]),
                     "logsumexp": float(f"{peak + math.log(np.exp(row - peak).sum()):.12g}"),
+                    "mean": float(f"{row.mean():.12g}"),
+                    "rms": float(f"{math.sqrt((row * row).mean()):.12g}"),
                 })
             records.append({"name": name, "tokens": tokens, "positions": positions})
 
