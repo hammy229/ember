@@ -12,6 +12,7 @@
 #include <system_error>
 #include <vector>
 
+#include "ember/char_model.h"
 #include "ember/forward.h"
 #include "ember/generate.h"
 #include "ember/json.h"
@@ -32,6 +33,9 @@ int Usage() {
          "                                run the model and show the likeliest next tokens;\n"
          "                                --out saves every logit as little-endian f32\n"
          "       ember tokenize MODEL_DIR TEXT  print the token ids of TEXT, one line\n"
+         "       ember train TEXT_FILE [--steps N] [--batch N] [--rate R] [--seed S]\n"
+         "                                train a small character-level transformer from scratch,\n"
+         "                                showing training and held-out loss, then a sample\n"
          "       ember route MODEL_DIR --threshold T [--signal NAME] [--tokens N] [--threads N]\n"
          "                   [--q8] PROMPT\n"
          "                                answer locally in chat format, and stop the moment the\n"
@@ -402,6 +406,66 @@ int RunRoute(int argc, char** argv) {
   return 0;
 }
 
+// Trains a small character-level transformer on a text file, from random weights.
+int RunTrain(int argc, char** argv) {
+  if (argc < 3) return Usage();
+  std::size_t steps = 1000;
+  ember::CharTrainer::Options options;
+  for (int i = 3; i < argc; ++i) {
+    const std::string_view arg = argv[i];
+    const bool has_value = i + 1 < argc;
+    bool ok = true;
+    if (arg == "--steps" && has_value) {
+      ok = ParseNumber(argv[++i], steps);
+    } else if (arg == "--batch" && has_value) {
+      ok = ParseNumber(argv[++i], options.batch) && options.batch >= 1;
+    } else if (arg == "--rate" && has_value) {
+      ok = ParseNumber(argv[++i], options.rate) && options.rate > 0;
+    } else if (arg == "--seed" && has_value) {
+      ok = ParseNumber(argv[++i], options.seed);
+    } else {
+      ok = false;
+    }
+    if (!ok) return Usage();
+  }
+  std::ifstream in(argv[2], std::ios::binary);
+  if (!in) {
+    std::cerr << "error: could not read " << argv[2] << '\n';
+    return 1;
+  }
+  const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  ember::CharTrainer trainer(text, options);
+  if (!trainer.ready()) {
+    std::cerr << "error: the text is too short to train on\n";
+    return 1;
+  }
+  const auto& c = options.model;
+  std::cout << trainer.model().parameter_count() << " parameters: " << c.layers << " layers, width "
+            << c.width << ", " << c.heads << " heads, context " << c.context << ", "
+            << trainer.vocab().size() << " characters\n"
+            << "step  train loss  held-out loss  (nats per character; guessing is "
+            << std::log(static_cast<double>(trainer.vocab().size())) << ")\n";
+  const ember::Stopwatch stopwatch;
+  float recent = 0;
+  std::size_t counted = 0;
+  for (std::size_t step = 1; step <= steps; ++step) {
+    recent += trainer.Step();
+    ++counted;
+    if (step % 100 == 0 || step == steps) {
+      std::cout << std::setw(4) << step << "  " << std::setw(10)
+                << recent / static_cast<float>(counted) << "  " << std::setw(13)
+                << trainer.HeldOutLoss() << '\n'
+                << std::flush;
+      recent = 0;
+      counted = 0;
+    }
+  }
+  const double seconds = stopwatch.ElapsedMs() / 1000.0;
+  std::cout << steps << " steps in " << seconds << " s\n\n"
+            << trainer.Sample("\n", 300, 0.8F, options.seed) << '\n';
+  return 0;
+}
+
 int RunGenerate(int argc, char** argv) {
   if (argc < 4) return Usage();
   const std::string directory = argv[2];
@@ -527,6 +591,7 @@ int main(int argc, char** argv) {
   if (command == "generate") return RunGenerate(argc, argv);
   if (command == "batch") return RunBatch(argc, argv);
   if (command == "tokenize") return RunTokenize(argc, argv);
+  if (command == "train") return RunTrain(argc, argv);
   if (command == "route") return RunRoute(argc, argv);
   return Usage();
 }
