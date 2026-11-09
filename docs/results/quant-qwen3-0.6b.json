@@ -1,48 +1,48 @@
 {
  "model": "qwen3-0.6b",
  "positions": 207,
- "kl_mean": 0.00264213605627767,
- "kl_max": 0.09610003038805219,
- "same_pick": 0.9710144927536232,
- "top5_overlap": 0.9652173913043479,
+ "kl_mean": 0.011152809503859717,
+ "kl_max": 0.5579441237926955,
+ "same_pick": 0.9420289855072463,
+ "top5_overlap": 0.9565217391304348,
  "texts": {
   "story": {
    "positions": 60,
-   "kl_mean": 0.0025535498669798746,
-   "kl_max": 0.09266971877971293,
-   "same_pick": 0.9833333333333333,
-   "top5_overlap": 0.97
+   "kl_mean": 0.011570329299795963,
+   "kl_max": 0.5301109688993425,
+   "same_pick": 0.95,
+   "top5_overlap": 0.9466666666666667
   },
   "encyclopedia": {
    "positions": 44,
-   "kl_mean": 0.0020506192751799175,
-   "kl_max": 0.05780928480407735,
-   "same_pick": 0.9545454545454546,
-   "top5_overlap": 0.9681818181818183
+   "kl_mean": 0.011898985147028663,
+   "kl_max": 0.4372690586754795,
+   "same_pick": 0.8863636363636364,
+   "top5_overlap": 0.9636363636363636
   },
   "code": {
    "positions": 46,
-   "kl_mean": 0.001874359475055175,
-   "kl_max": 0.07902402260272264,
+   "kl_mean": 0.0056301942866813165,
+   "kl_max": 0.23427898650697804,
    "same_pick": 1.0,
-   "top5_overlap": 0.9652173913043478
+   "top5_overlap": 0.9695652173913044
   },
   "math": {
    "positions": 57,
-   "kl_mean": 0.0038116032924601882,
-   "kl_max": 0.09610003038805219,
-   "same_pick": 0.9473684210526315,
-   "top5_overlap": 0.9578947368421051
+   "kl_mean": 0.014594167116747405,
+   "kl_max": 0.5579441237926955,
+   "same_pick": 0.9298245614035088,
+   "top5_overlap": 0.9508771929824562
   }
  },
  "machine": "macOS-27.2-arm64-arm-64bit-Mach-O",
  "threads": 6,
  "f32": {
-  "tokens_per_second": 27.9,
-  "peak_memory_mb": 3555
+  "tokens_per_second": 16.9,
+  "peak_memory_mb": 3423
  },
  "q8": {
-  "tokens_per_second": 45.4,
+  "tokens_per_second": 55.2,
   "peak_memory_mb": 2377
  }
 }

@@ -150,8 +150,12 @@ def main():
         ]
     lines += [
         "",
-        "KL divergence is in nats. The embedding table and the norms stay f32; every matrix used in "
-        "the forward pass, including the output layer, is 8-bit with one scale per 32 weights.",
+        "KL divergence is in nats. The embedding table and the norms stay f32. Every matrix used in "
+        "the forward pass, including the output layer, is 8-bit with one scale per 32 weights, and "
+        "the input to each one is rounded to 8 bits the same way, so the multiply can use integer "
+        "dot products, as llama.cpp does for its Q8_0 format. That second rounding costs more "
+        "accuracy than the first: with f32 inputs (commit 33fd481) the same texts gave a mean KL of "
+        "0.00264 and the same pick 97.1% of the time, at 45.4 tokens a second.",
         "",
     ]
     (out / f"quant-{args.model}.md").write_text("\n".join(lines))

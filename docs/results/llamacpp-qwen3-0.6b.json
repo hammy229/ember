@@ -9,11 +9,11 @@
  },
  "prompt_tokens": 121,
  "generation_tokens_per_second": {
-  "ember": 44.4,
-  "llama.cpp": 134.6
+  "ember": 58.0,
+  "llama.cpp": 126.9
  },
  "prompt_tokens_per_second": {
-  "ember": 124.9,
-  "llama.cpp": 642.7
+  "ember": 257.9,
+  "llama.cpp": 642.9
  }
 }
