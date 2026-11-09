@@ -405,4 +405,64 @@ TEST(ForwardCached, MatchesForwardForAQwen3StyleModel) {
   ExpectCachedMatchesForward(options, {3, 1, 4, 1, 5, 9, 2, 6}, {4, 1, 1, 2});
 }
 
+TEST(ForwardTrace, TracingChangesNothingAndRecordsEveryLayer) {
+  TinyLlamaOptions options;
+  options.hidden = 16;
+  options.heads = 4;
+  options.kv_heads = 2;
+  options.layers = 3;
+  options.seed = 31;
+  const Loaded loaded = Load(options);
+  const std::vector<std::int32_t> tokens{1, 5, 3, 10, 0, 7};
+  Arena a;
+  Arena b;
+  const auto plain = ember::Forward(*loaded.model, tokens, a);
+  ember::ForwardTrace trace;
+  const auto traced = ember::Forward(*loaded.model, tokens, b, &trace);
+  ASSERT_TRUE(plain.ok() && traced.ok());
+  for (std::size_t i = 0; i < plain->element_count(); ++i) {
+    ASSERT_EQ(plain->data<float>()[i], traced->data<float>()[i]);
+  }
+  ASSERT_EQ(trace.attention.size(), 3U);
+  ASSERT_EQ(trace.residual.size(), 3U);
+  const std::size_t n = tokens.size();
+  for (const auto& layer : trace.attention) {
+    ASSERT_EQ(layer.size(), 4U * n * n);
+    for (std::size_t h = 0; h < 4; ++h) {
+      for (std::size_t i = 0; i < n; ++i) {
+        double total = 0;
+        for (std::size_t j = 0; j < n; ++j) {
+          const float p = layer[(h * n + i) * n + j];
+          if (j > i) EXPECT_EQ(p, 0.0F) << "token " << i << " looked ahead at " << j;
+          total += p;
+        }
+        EXPECT_NEAR(total, 1.0, 1e-5);
+      }
+    }
+  }
+  for (const auto& layer : trace.residual) EXPECT_EQ(layer.size(), n * 16U);
+}
+
+TEST(ForwardTrace, TheLastLayerOfTheLensIsTheModelsOwnPrediction) {
+  const Loaded loaded = Load({});
+  const std::vector<std::int32_t> tokens{4, 1, 7, 2, 9};
+  Arena arena;
+  ember::ForwardTrace trace;
+  const auto logits = ember::Forward(*loaded.model, tokens, arena, &trace);
+  ASSERT_TRUE(logits.ok());
+  Arena lens_arena;
+  const auto lens = ember::LogitLens(*loaded.model, trace, lens_arena);
+  ASSERT_TRUE(lens.ok()) << lens.status().ToString();
+  ASSERT_EQ(lens->size(), 2U);
+  for (std::size_t t = 0; t < tokens.size(); ++t) {
+    std::size_t best = 0;
+    for (std::size_t i = 1; i < 11; ++i) {
+      if (logits->at<float>(t, i) > logits->at<float>(t, best)) best = i;
+    }
+    EXPECT_EQ((*lens)[1][t].id, static_cast<std::int32_t>(best));
+    EXPECT_GT((*lens)[1][t].probability, 0.0F);
+  }
+  EXPECT_FALSE(ember::LogitLens(*loaded.model, ember::ForwardTrace{}, lens_arena).ok());
+}
+
 }  // namespace

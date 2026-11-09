@@ -1,5 +1,6 @@
 #include "ember/layers.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -188,7 +189,7 @@ Status ApplyRope(const Tensor& x, std::size_t first_position, float theta) {
 }
 
 Status CausalAttention(const TensorView& q, const TensorView& k, const TensorView& v,
-                       const Tensor& out, Arena& arena) {
+                       const Tensor& out, Arena& arena, float* probabilities) {
   for (const TensorView* tensor : {&q, &k, &v}) {
     EMBER_RETURN_IF_ERROR(RequireContiguousF32(*tensor, 3, "CausalAttention"));
   }
@@ -242,6 +243,9 @@ Status CausalAttention(const TensorView& q, const TensorView& k, const TensorVie
         }
       }
       EMBER_RETURN_IF_ERROR(Softmax(scores, 2, scores));
+      if (probabilities != nullptr) {
+        std::copy_n(scores.data<float>(), queries * keys, probabilities + h * queries * keys);
+      }
       EMBER_ASSIGN_OR_RETURN(const Tensor out_head, out_heads.Slice(0, h, 1));
       EMBER_RETURN_IF_ERROR(MatMul(scores, v_head, out_head));
     }

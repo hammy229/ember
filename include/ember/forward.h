@@ -23,8 +23,26 @@ namespace ember {
 //
 // Fails on an empty sequence, one longer than the model's context, or a token id outside its
 // vocabulary.
+//
+// With a trace, it also records what happens inside, for the site's "look inside" view.
+struct ForwardTrace {
+  // Per layer, each head's attention weights as [heads, tokens, tokens].
+  std::vector<std::vector<float>> attention;
+  // Per layer, the residual stream after that layer as [tokens, hidden].
+  std::vector<std::vector<float>> residual;
+};
 StatusOr<Tensor> Forward(const LlamaModel& model, std::span<const std::int32_t> tokens,
-                         Arena& arena);
+                         Arena& arena, ForwardTrace* trace = nullptr);
+
+// The logit lens: what the model would predict at each position if it stopped after each layer.
+// Each layer's residual from the trace goes through the final norm and the output layer. Gives
+// [layers][tokens] of the most likely next token and its probability.
+struct LensPick {
+  std::int32_t id = -1;
+  float probability = 0;
+};
+StatusOr<std::vector<std::vector<LensPick>>> LogitLens(const LlamaModel& model,
+                                                       const ForwardTrace& trace, Arena& arena);
 
 // Every layer's keys and values for the tokens seen so far, so generation does not recompute them.
 // Memory for the full capacity is taken once, up front: 2 * layers * capacity * kv_heads * head_dim

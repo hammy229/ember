@@ -42,7 +42,10 @@ Status ApplyRope(const Tensor& x, std::size_t first_position, float theta);
 // each key and value head serves heads / kv_heads query heads in a row. out is [queries, heads,
 // head_dim] and must not overlap any input. Scratch memory comes from the arena and is given back
 // before returning.
+//
+// If `probabilities` is given, each head's attention weights after softmax are copied into it as
+// [heads, queries, keys], for looking inside the model.
 Status CausalAttention(const TensorView& q, const TensorView& k, const TensorView& v,
-                       const Tensor& out, Arena& arena);
+                       const Tensor& out, Arena& arena, float* probabilities = nullptr);
 
 }  // namespace ember

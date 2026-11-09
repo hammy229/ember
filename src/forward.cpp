@@ -11,6 +11,7 @@
 #include "ember/layers.h"
 #include "ember/ops.h"
 #include "ember/quant.h"
+#include "ember/sampling.h"
 
 namespace ember {
 
@@ -39,7 +40,8 @@ struct LayerCache {
 //   x = x + Attention(RmsNorm(x))
 //   x = x + Down(Silu(Gate(RmsNorm(x))) * Up(RmsNorm(x)))
 Status RunLayer(const LlamaConfig& c, const LlamaLayer& layer, const Tensor& x,
-                std::size_t first_position, const LayerCache* cache, Arena& arena) {
+                std::size_t first_position, const LayerCache* cache, Arena& arena,
+                float* probabilities = nullptr) {
   const ArenaScope scope(arena);
   const std::size_t tokens = x.dim(0);
   const std::size_t q_width = c.head_count * c.head_dim;
@@ -76,7 +78,7 @@ Status RunLayer(const LlamaConfig& c, const LlamaLayer& layer, const Tensor& x,
 
   EMBER_ASSIGN_OR_RETURN(const Tensor attended, Tensor::Uninitialized(arena, DType::kF32, q_heads));
   if (cache == nullptr) {
-    EMBER_RETURN_IF_ERROR(CausalAttention(q3, k3, v3, attended, arena));
+    EMBER_RETURN_IF_ERROR(CausalAttention(q3, k3, v3, attended, arena, probabilities));
   } else {
     // Store this call's keys and values after the ones already cached, then attend to all of them.
     const std::size_t end = first_position + tokens;
@@ -109,7 +111,7 @@ Status RunLayer(const LlamaConfig& c, const LlamaLayer& layer, const Tensor& x,
 }  // namespace
 
 StatusOr<Tensor> Forward(const LlamaModel& model, std::span<const std::int32_t> tokens,
-                         Arena& arena) {
+                         Arena& arena, ForwardTrace* trace) {
   const LlamaConfig& c = model.config();
   const LlamaWeights& w = model.weights();
   if (tokens.empty()) return Status::InvalidArgument("Forward needs at least one token");
@@ -125,8 +127,20 @@ StatusOr<Tensor> Forward(const LlamaModel& model, std::span<const std::int32_t> 
     const ArenaScope scope(arena);
     EMBER_ASSIGN_OR_RETURN(const Tensor x, Scratch(arena, {tokens.size(), c.hidden_size}));
     EMBER_RETURN_IF_ERROR(Embed(w.embedding, tokens, x));
-    for (const LlamaLayer& layer : w.layers) {
-      EMBER_RETURN_IF_ERROR(RunLayer(c, layer, x, 0, nullptr, arena));
+    if (trace != nullptr) {
+      trace->attention.assign(c.layer_count, {});
+      trace->residual.assign(c.layer_count, {});
+    }
+    for (std::size_t i = 0; i < c.layer_count; ++i) {
+      float* probabilities = nullptr;
+      if (trace != nullptr) {
+        trace->attention[i].assign(c.head_count * tokens.size() * tokens.size(), 0.0F);
+        probabilities = trace->attention[i].data();
+      }
+      EMBER_RETURN_IF_ERROR(RunLayer(c, w.layers[i], x, 0, nullptr, arena, probabilities));
+      if (trace != nullptr) {
+        trace->residual[i].assign(x.data<float>(), x.data<float>() + x.element_count());
+      }
     }
     EMBER_RETURN_IF_ERROR(RmsNorm(x, w.final_norm, c.rms_norm_eps, x));
     EMBER_RETURN_IF_ERROR(Project(x, w.lm_head, w.lm_head_q8, logits));
@@ -194,6 +208,32 @@ StatusOr<Tensor> ForwardCached(const LlamaModel& model, std::span<const std::int
   }
   cache.size_ += tokens.size();
   return logits;
+}
+
+StatusOr<std::vector<std::vector<LensPick>>> LogitLens(const LlamaModel& model,
+                                                       const ForwardTrace& trace, Arena& arena) {
+  const LlamaConfig& c = model.config();
+  const LlamaWeights& w = model.weights();
+  if (trace.residual.size() != c.layer_count || trace.residual.empty() ||
+      trace.residual[0].size() % c.hidden_size != 0) {
+    return Status::InvalidArgument("LogitLens needs a trace from Forward on this model");
+  }
+  const std::size_t tokens = trace.residual[0].size() / c.hidden_size;
+  std::vector<std::vector<LensPick>> picks(c.layer_count, std::vector<LensPick>(tokens));
+  for (std::size_t l = 0; l < c.layer_count; ++l) {
+    const ArenaScope scope(arena);
+    EMBER_ASSIGN_OR_RETURN(const Tensor x, Scratch(arena, {tokens, c.hidden_size}));
+    std::copy(trace.residual[l].begin(), trace.residual[l].end(), x.data<float>());
+    EMBER_RETURN_IF_ERROR(RmsNorm(x, w.final_norm, c.rms_norm_eps, x));
+    EMBER_ASSIGN_OR_RETURN(const Tensor logits, Scratch(arena, {tokens, c.vocab_size}));
+    EMBER_RETURN_IF_ERROR(Project(x, w.lm_head, w.lm_head_q8, logits));
+    for (std::size_t t = 0; t < tokens; ++t) {
+      const std::span<const float> row(logits.data<float>() + t * c.vocab_size, c.vocab_size);
+      EMBER_ASSIGN_OR_RETURN(const TokenStats stats, Uncertainty(row));
+      picks[l][t] = LensPick{stats.top1_id, stats.top1_prob};
+    }
+  }
+  return picks;
 }
 
 }  // namespace ember
