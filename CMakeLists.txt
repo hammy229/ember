@@ -40,12 +40,14 @@ add_library(ember STATIC
   src/check.cpp
   src/f16.cpp
   src/forward.cpp
+  src/generate.cpp
   src/json.cpp
   src/layers.cpp
   src/llama.cpp
   src/mapped_file.cpp
   src/ops.cpp
   src/safetensors.cpp
+  src/sampling.cpp
   src/shape.cpp
   src/status.cpp
   src/tensor.cpp
@@ -112,6 +114,7 @@ if(EMBER_BUILD_TESTS)
     tests/dtype_test.cpp
     tests/f16_test.cpp
     tests/forward_test.cpp
+    tests/generate_test.cpp
     tests/hf_reference_test.cpp
     tests/json_test.cpp
     tests/layers_test.cpp
@@ -120,6 +123,7 @@ if(EMBER_BUILD_TESTS)
     tests/mapped_file_test.cpp
     tests/ops_test.cpp
     tests/safetensors_test.cpp
+    tests/sampling_test.cpp
     tests/shape_test.cpp
     tests/status_or_test.cpp
     tests/status_test.cpp
@@ -148,6 +152,13 @@ if(EMBER_BUILD_TESTS)
 
   add_test(NAME cli_logits_rejects_a_bad_token_id COMMAND ember_cli logits /no/model 1 x)
   set_tests_properties(cli_logits_rejects_a_bad_token_id PROPERTIES PASS_REGULAR_EXPRESSION "usage:")
+  add_test(NAME cli_generate_needs_a_prompt COMMAND ember_cli generate /no/model --tokens 5)
+  set_tests_properties(cli_generate_needs_a_prompt PROPERTIES PASS_REGULAR_EXPRESSION "usage:")
+  add_test(NAME cli_generate_rejects_a_bad_number COMMAND ember_cli generate /no/model --temp x hi)
+  set_tests_properties(cli_generate_rejects_a_bad_number PROPERTIES PASS_REGULAR_EXPRESSION "usage:")
+  add_test(NAME cli_generate_reports_a_missing_model COMMAND ember_cli generate /no/such/model hi)
+  set_tests_properties(cli_generate_reports_a_missing_model PROPERTIES
+    PASS_REGULAR_EXPRESSION "NOT_FOUND")
 
   add_test(NAME bench_model_rejects_bad_repeats COMMAND ember_bench_model /no/model 0)
   set_tests_properties(bench_model_rejects_bad_repeats PROPERTIES PASS_REGULAR_EXPRESSION "usage:")

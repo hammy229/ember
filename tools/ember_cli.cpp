@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <numeric>
 #include <string>
@@ -11,8 +12,10 @@
 #include <vector>
 
 #include "ember/forward.h"
+#include "ember/generate.h"
 #include "ember/llama.h"
 #include "ember/timer.h"
+#include "ember/tokenizer.h"
 #include "ember/version.h"
 
 namespace {
@@ -22,7 +25,15 @@ int Usage() {
                "       ember inspect MODEL_DIR  load a model and describe it\n"
                "       ember logits MODEL_DIR [--out FILE] TOKEN_ID...\n"
                "                                run the model and show the likeliest next tokens;\n"
-               "                                --out saves every logit as little-endian f32\n";
+               "                                --out saves every logit as little-endian f32\n"
+               "       ember generate MODEL_DIR [options] PROMPT\n"
+               "                                continue the prompt, printing text as it comes\n"
+               "         --tokens N   new tokens at most (default 128)\n"
+               "         --temp T     temperature, 0 for greedy (default 0)\n"
+               "         --top-k K    keep the K likeliest tokens (default all)\n"
+               "         --top-p P    keep the likeliest tokens up to probability P (default 1)\n"
+               "         --seed S     random seed (default 0)\n"
+               "         --stats      show each token's entropy and top-2 margin afterwards\n";
   return 2;
 }
 
@@ -105,6 +116,101 @@ int RunLogits(int argc, char** argv) {
   return Logits(directory, out_path, tokens);
 }
 
+// Parses a whole argument as a number, or fails.
+template <typename T>
+bool ParseNumber(std::string_view text, T& value) {
+  const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+  return error == std::errc() && end == text.data() + text.size();
+}
+
+int RunGenerate(int argc, char** argv) {
+  if (argc < 4) return Usage();
+  const std::string directory = argv[2];
+  ember::GenerateOptions options;
+  options.max_new_tokens = 128;
+  bool show_stats = false;
+  std::string prompt;
+  for (int i = 3; i < argc; ++i) {
+    const std::string_view arg = argv[i];
+    const bool has_value = i + 1 < argc;
+    bool ok = true;
+    if (arg == "--tokens" && has_value) {
+      ok = ParseNumber(argv[++i], options.max_new_tokens);
+    } else if (arg == "--temp" && has_value) {
+      ok = ParseNumber(argv[++i], options.sampling.temperature);
+    } else if (arg == "--top-k" && has_value) {
+      ok = ParseNumber(argv[++i], options.sampling.top_k);
+    } else if (arg == "--top-p" && has_value) {
+      ok = ParseNumber(argv[++i], options.sampling.top_p);
+    } else if (arg == "--seed" && has_value) {
+      ok = ParseNumber(argv[++i], options.sampling.seed);
+    } else if (arg == "--stats") {
+      show_stats = true;
+    } else if (i == argc - 1 && !arg.starts_with("--")) {
+      prompt = arg;
+    } else {
+      ok = false;
+    }
+    if (!ok) return Usage();
+  }
+  if (prompt.empty()) return Usage();
+
+  const auto model = ember::LlamaModel::Load(directory);
+  if (!model.ok()) {
+    std::cerr << "error: " << model.status().ToString() << '\n';
+    return 1;
+  }
+  const auto tokenizer = ember::Tokenizer::Load(directory + "/tokenizer.json");
+  if (!tokenizer.ok()) {
+    std::cerr << "error: " << tokenizer.status().ToString() << '\n';
+    return 1;
+  }
+  const std::vector<std::int32_t> prompt_ids = tokenizer->Encode(prompt, true);
+  options.stop_token = tokenizer->eos_id();
+
+  // Decoding the prompt and the new tokens together keeps the space before the first new word.
+  // Only text that is settled gets printed: a run of byte pieces still waiting for the rest of its
+  // character decodes to U+FFFD for now.
+  std::vector<std::int32_t> text_ids(prompt_ids.begin() + 1, prompt_ids.end());
+  const std::string prompt_text = tokenizer->Decode(text_ids).value();
+  std::size_t printed = prompt_text.size();
+  std::cout << prompt_text << std::flush;
+  const auto on_token = [&](const ember::GeneratedToken& token, std::size_t) {
+    if (token.id == tokenizer->eos_id()) return true;
+    text_ids.push_back(token.id);
+    const auto text = tokenizer->Decode(text_ids);
+    if (!text.ok() || text->size() < printed) return true;
+    std::string_view fresh = std::string_view(*text).substr(printed);
+    constexpr std::string_view kReplacement = "\xEF\xBF\xBD";
+    if (fresh.ends_with(kReplacement)) return true;
+    std::cout << fresh << std::flush;
+    printed = text->size();
+    return true;
+  };
+
+  const ember::Stopwatch stopwatch;
+  const auto result = ember::Generate(**model, prompt_ids, options, on_token);
+  const double ms = stopwatch.ElapsedMs();
+  std::cout << '\n';
+  if (!result.ok()) {
+    std::cerr << "error: " << result.status().ToString() << '\n';
+    return 1;
+  }
+  const std::size_t count = result->tokens.size();
+  std::cerr << count << " tokens in " << ms << " ms ("
+            << (ms > 0 ? 1000.0 * static_cast<double>(count) / ms : 0.0) << " tokens/s, prompt of "
+            << prompt_ids.size() << " included)\n";
+  if (show_stats) {
+    std::cerr << std::fixed << std::setprecision(3) << "  #   entropy  margin  token\n";
+    for (std::size_t i = 0; i < count; ++i) {
+      const ember::GeneratedToken& t = result->tokens[i];
+      std::cerr << std::setw(3) << i << "  " << std::setw(7) << t.stats.entropy << "  "
+                << std::setw(6) << t.stats.margin << "  " << tokenizer->piece(t.id) << '\n';
+    }
+  }
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -115,5 +221,6 @@ int main(int argc, char** argv) {
   const std::string_view command = argv[1];
   if (command == "inspect" && argc == 3) return Inspect(argv[2]);
   if (command == "logits") return RunLogits(argc, argv);
+  if (command == "generate") return RunGenerate(argc, argv);
   return Usage();
 }
