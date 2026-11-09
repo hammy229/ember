@@ -107,6 +107,16 @@ report() {
   agreement "Once upon a time" "${short[@]}"
   agreement "a full sentence" "${sentence[@]}"
   agreement "128 tokens across the vocabulary" "${long[@]}"
+  echo "## 1b. Correctness: Ember against Hugging Face transformers"
+  echo
+  echo "\`tests/hf_reference_test.cpp\` against the logits \`transformers\` saved in \`tests/reference/\` (made by \`scripts/hf_reference.py\`): the top 10, every 500th, and the logsumexp of all 32,000, at each of the same 156 positions."
+  echo
+  echo '```'
+  echo "made with: $(python3 -c 'import json; m = json.load(open("tests/reference/hf_logits_tinyllama-15M.json"))["made_with"]; print(", ".join(f"{k} {v}" for k, v in m.items()))')"
+  EMBER_MODEL_DIR="$model" EMBER_REQUIRE_MODEL=1 ./build/release/ember_tests --gtest_filter='HfReferenceTest.*' |
+    grep -E "largest difference|PASSED|FAILED"
+  echo '```'
+  echo
   echo "## 2. Speed and memory"
   echo
   echo "One thread, \`ember_bench_model\`, median of 10 runs."
