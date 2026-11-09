@@ -1,5 +1,6 @@
 #include "ember/tokenizer.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -12,6 +13,7 @@
 
 #include "ember/json.h"
 #include "ember/mapped_file.h"
+#include "ember/unicode.h"
 
 namespace ember {
 
@@ -136,6 +138,101 @@ bool IsLlamaDecoder(const Json* decoder) {
          stop != nullptr && stop->as_uint64() == 0;
 }
 
+// Qwen's pre-tokenizer, which must be exactly: split by this regex keeping every match, then the
+// byte-level step with no prefix space and no regex of its own.
+constexpr std::string_view kQwenPattern =
+    R"((?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+)";
+
+bool IsByteLevelStep(const Json& step) {
+  return IsString(Member(step, "type"), "ByteLevel") &&
+         IsFalseOrMissing(Member(step, "add_prefix_space")) &&
+         IsFalseOrMissing(Member(step, "use_regex"));
+}
+
+bool IsQwenPreTokenizer(const Json* pre) {
+  if (pre == nullptr || !IsString(Member(*pre, "type"), "Sequence")) return false;
+  const Json* steps = Member(*pre, "pretokenizers");
+  if (steps == nullptr || !steps->is_array() || steps->size() != 2) return false;
+  const Json& split = steps->items()[0];
+  const Json* pattern = Member(split, "pattern");
+  return IsString(Member(split, "type"), "Split") && pattern != nullptr &&
+         IsString(Member(*pattern, "Regex"), kQwenPattern) &&
+         IsString(Member(split, "behavior"), "Isolated") &&
+         IsFalseOrMissing(Member(split, "invert")) && IsByteLevelStep(steps->items()[1]);
+}
+
+// GPT-2's stand-ins: printable bytes stand for themselves, the other 68 for U+0100 onward, in
+// order.
+std::array<char32_t, 256> StandIns() {
+  std::array<char32_t, 256> out{};
+  char32_t next = 0x100;
+  for (int b = 0; b < 256; ++b) {
+    const bool printable = (b >= '!' && b <= '~') || (b >= 0xA1 && b <= 0xAC) || b >= 0xAE;
+    out[static_cast<std::size_t>(b)] = printable ? static_cast<char32_t>(b) : next++;
+  }
+  return out;
+}
+
+bool IsLineBreak(char32_t c) { return c == '\r' || c == '\n'; }
+
+// How long the match of Qwen's regex is at text[i]. The regex is seven alternatives, tried in
+// order, and the first that matches wins; each is written out by hand below. Every character
+// starts some match, so the result is at least 1.
+std::size_t QwenMatch(std::u32string_view text, std::size_t i) {
+  using unicode::IsLetter;
+  using unicode::IsNumber;
+  using unicode::IsWhiteSpace;
+  const std::size_t n = text.size();
+  const auto letters_from = [&](std::size_t k) {
+    while (k < n && IsLetter(text[k])) ++k;
+    return k;
+  };
+
+  // 1. (?i:'s|'t|'re|'ve|'m|'ll|'d), with Unicode simple case folding: s also matches U+017F and
+  //    k is not in the list, so nothing else folds in.
+  if (text[i] == '\'' && i + 1 < n) {
+    const auto lower = [](char32_t c) -> char32_t {
+      if (c >= 'A' && c <= 'Z') return c - 'A' + 'a';
+      if (c == 0x17F) return 's';
+      return c;
+    };
+    const char32_t a = lower(text[i + 1]);
+    const char32_t b = i + 2 < n ? lower(text[i + 2]) : 0;
+    if ((a == 'r' && b == 'e') || (a == 'v' && b == 'e') || (a == 'l' && b == 'l')) return 3;
+    if (a == 's' || a == 't' || a == 'm' || a == 'd') return 2;
+  }
+  // 2. [^\r\n\p{L}\p{N}]?\p{L}+
+  if (!IsLineBreak(text[i]) && !IsLetter(text[i]) && !IsNumber(text[i]) && i + 1 < n &&
+      IsLetter(text[i + 1])) {
+    return letters_from(i + 1) - i;
+  }
+  if (IsLetter(text[i])) return letters_from(i) - i;
+  // 3. \p{N}
+  if (IsNumber(text[i])) return 1;
+  // 4. ' ?[^\s\p{L}\p{N}]+[\r\n]*'
+  const auto other = [&](std::size_t k) {
+    return k < n && !IsWhiteSpace(text[k]) && !IsLetter(text[k]) && !IsNumber(text[k]);
+  };
+  std::size_t k = text[i] == ' ' && other(i + 1) ? i + 1 : i;
+  if (other(k)) {
+    while (other(k)) ++k;
+    while (k < n && IsLineBreak(text[k])) ++k;
+    return k - i;
+  }
+  // The rest all start with whitespace.
+  std::size_t end = i;
+  while (end < n && IsWhiteSpace(text[end])) ++end;
+  // 5. \s*[\r\n]+ : through the last line break in this run of whitespace.
+  for (std::size_t j = end; j > i; --j) {
+    if (IsLineBreak(text[j - 1])) return j - i;
+  }
+  // 6. \s+(?!\S) : the whole run at the end of the text, else all but its last character.
+  if (end == n) return end - i;
+  if (end - i >= 2) return end - i - 1;
+  // 7. \s+
+  return end - i;
+}
+
 }  // namespace
 
 StatusOr<Tokenizer> Tokenizer::Load(const std::string& path) {
@@ -151,9 +248,16 @@ StatusOr<Tokenizer> Tokenizer::FromJson(std::string_view tokenizer_json) {
   if (model == nullptr || !IsString(Member(*model, "type"), "BPE")) {
     return Unsupported("a model that is not BPE");
   }
+  Tokenizer t;
+  t.kind_ =
+      IsNullOrMissing(Member(root, "pre_tokenizer")) ? Kind::kSentencePiece : Kind::kByteLevel;
+  const bool byte_level = t.kind_ == Kind::kByteLevel;
   const Json* byte_fallback = Member(*model, "byte_fallback");
-  if (byte_fallback == nullptr || !byte_fallback->is_bool() || !byte_fallback->as_bool()) {
-    return Unsupported("BPE without byte fallback");
+  const bool has_fallback =
+      byte_fallback != nullptr && byte_fallback->is_bool() && byte_fallback->as_bool();
+  if (has_fallback == byte_level) {
+    return Unsupported(byte_level ? "byte level BPE with byte fallback"
+                                  : "BPE without byte fallback");
   }
   if (!IsNullOrMissing(Member(*model, "dropout"))) return Unsupported("BPE dropout");
   for (const char* key : {"continuing_subword_prefix", "end_of_word_suffix"}) {
@@ -161,11 +265,24 @@ StatusOr<Tokenizer> Tokenizer::FromJson(std::string_view tokenizer_json) {
     if (!IsNullOrMissing(value) && !IsString(value, "")) return Unsupported(key);
   }
   if (!IsFalseOrMissing(Member(*model, "ignore_merges"))) return Unsupported("ignore_merges");
-  if (!IsLlamaNormalizer(Member(root, "normalizer"))) return Unsupported("this normalizer");
-  if (!IsNullOrMissing(Member(root, "pre_tokenizer"))) return Unsupported("a pre-tokenizer");
-  if (!IsLlamaDecoder(Member(root, "decoder"))) return Unsupported("this decoder");
+  if (byte_level) {
+    const Json* normalizer = Member(root, "normalizer");
+    if (normalizer == nullptr || !IsString(Member(*normalizer, "type"), "NFC")) {
+      return Unsupported("this normalizer");
+    }
+    if (!IsQwenPreTokenizer(Member(root, "pre_tokenizer")))
+      return Unsupported("this pre-tokenizer");
+    const Json* decoder = Member(root, "decoder");
+    if (decoder == nullptr || !IsByteLevelStep(*decoder)) return Unsupported("this decoder");
+    const Json* post = Member(root, "post_processor");
+    if (!IsNullOrMissing(post) && !IsByteLevelStep(*post)) {
+      return Unsupported("a post-processor that adds tokens");
+    }
+  } else {
+    if (!IsLlamaNormalizer(Member(root, "normalizer"))) return Unsupported("this normalizer");
+    if (!IsLlamaDecoder(Member(root, "decoder"))) return Unsupported("this decoder");
+  }
 
-  Tokenizer t;
   const Json* vocab = Member(*model, "vocab");
   if (vocab == nullptr || !vocab->is_object() || vocab->size() == 0) {
     return Status::InvalidFormat("tokenizer.json: model.vocab must be a non-empty object");
@@ -187,12 +304,24 @@ StatusOr<Tokenizer> Tokenizer::FromJson(std::string_view tokenizer_json) {
     t.ids_.emplace(piece, static_cast<std::int32_t>(index));
   }
   t.byte_ids_.fill(-1);
-  for (std::size_t id = 0; id < n; ++id) {
-    const int byte = ByteOfPiece(t.pieces_[id]);
-    if (byte >= 0) t.byte_ids_[static_cast<std::size_t>(byte)] = static_cast<std::int32_t>(id);
-  }
-  for (const std::int32_t id : t.byte_ids_) {
-    if (id < 0) return Status::InvalidFormat("tokenizer.json: a byte piece <0x..> is missing");
+  if (byte_level) {
+    const std::array<char32_t, 256> stand_ins = StandIns();
+    for (std::size_t b = 0; b < 256; ++b) {
+      t.stand_in_bytes_.emplace(stand_ins[b], static_cast<unsigned char>(b));
+      const auto found = t.ids_.find(unicode::Encode(std::u32string(1, stand_ins[b])));
+      if (found == t.ids_.end()) {
+        return Status::InvalidFormat("tokenizer.json: a byte's stand-in character is missing");
+      }
+      t.byte_ids_[b] = found->second;
+    }
+  } else {
+    for (std::size_t id = 0; id < n; ++id) {
+      const int byte = ByteOfPiece(t.pieces_[id]);
+      if (byte >= 0) t.byte_ids_[static_cast<std::size_t>(byte)] = static_cast<std::int32_t>(id);
+    }
+    for (const std::int32_t id : t.byte_ids_) {
+      if (id < 0) return Status::InvalidFormat("tokenizer.json: a byte piece <0x..> is missing");
+    }
   }
 
   const Json* merges = Member(*model, "merges");
@@ -230,7 +359,7 @@ StatusOr<Tokenizer> Tokenizer::FromJson(std::string_view tokenizer_json) {
                       Merge{static_cast<std::int32_t>(rank), m->second});
   }
 
-  t.is_special_.assign(n, false);
+  // Added tokens are either pieces of the vocab (Llama) or extra ids right after it (Qwen).
   const Json* added = Member(root, "added_tokens");
   if (added != nullptr && !added->is_null()) {
     if (!added->is_array()) return Status::InvalidFormat("tokenizer.json: added_tokens");
@@ -240,34 +369,105 @@ StatusOr<Tokenizer> Tokenizer::FromJson(std::string_view tokenizer_json) {
       const std::optional<std::uint64_t> id =
           id_value != nullptr ? id_value->as_uint64() : std::nullopt;
       if (content == nullptr || !content->is_string() || content->as_string().empty() || !id ||
-          *id >= n || t.pieces_[static_cast<std::size_t>(*id)] != content->as_string()) {
+          *id > (std::size_t{1} << 30)) {
+        return Status::InvalidFormat("tokenizer.json: an added token has no text or id");
+      }
+      const auto index = static_cast<std::size_t>(*id);
+      if (index >= t.pieces_.size()) t.pieces_.resize(index + 1);
+      if (t.pieces_[index].empty()) {
+        t.pieces_[index] = content->as_string();
+        t.ids_.emplace(content->as_string(), static_cast<std::int32_t>(index));
+      } else if (t.pieces_[index] != content->as_string()) {
         return Status::InvalidFormat("tokenizer.json: an added token does not match the vocab");
       }
       const Json* normalized = Member(token, "normalized");
-      if (normalized == nullptr || !normalized->is_bool() || !normalized->as_bool() ||
+      if (normalized == nullptr || !normalized->is_bool() || normalized->as_bool() == byte_level ||
           !IsFalseOrMissing(Member(token, "single_word")) ||
           !IsFalseOrMissing(Member(token, "lstrip")) ||
           !IsFalseOrMissing(Member(token, "rstrip"))) {
-        return Unsupported("an added token that is not normalized, or strips or matches words");
+        return Unsupported(
+            "an added token that strips, matches whole words, or is normalized "
+            "differently");
       }
       t.specials_.push_back(
-          Special{Normalize(content->as_string()), static_cast<std::int32_t>(*id)});
-      t.is_special_[static_cast<std::size_t>(*id)] = true;
-      if (content->as_string() == "<s>") t.bos_id_ = static_cast<std::int32_t>(*id);
-      if (content->as_string() == "</s>") t.eos_id_ = static_cast<std::int32_t>(*id);
+          Special{byte_level ? content->as_string() : Normalize(content->as_string()),
+                  static_cast<std::int32_t>(index)});
     }
   }
-  if (t.bos_id_ < 0 || t.eos_id_ < 0) {
-    return Status::InvalidFormat("tokenizer.json: <s> and </s> must be added tokens");
+  for (const std::string& piece : t.pieces_) {
+    if (piece.empty()) return Status::InvalidFormat("tokenizer.json: the ids have a gap");
+  }
+  t.is_special_.assign(t.pieces_.size(), false);
+  for (const Special& special : t.specials_) {
+    t.is_special_[static_cast<std::size_t>(special.id)] = true;
+  }
+  const auto special_id = [&](std::string_view text) {
+    const auto found = t.ids_.find(std::string(text));
+    return found != t.ids_.end() && t.is_special_[static_cast<std::size_t>(found->second)]
+               ? found->second
+               : -1;
+  };
+  if (byte_level) {
+    t.eos_id_ = special_id("<|im_end|>");
+    for (const char* stop : {"<|im_end|>", "<|endoftext|>"}) {
+      if (special_id(stop) >= 0) t.stop_ids_.push_back(special_id(stop));
+    }
+  } else {
+    t.bos_id_ = special_id("<s>");
+    t.eos_id_ = special_id("</s>");
+    if (t.bos_id_ < 0 || t.eos_id_ < 0) {
+      return Status::InvalidFormat("tokenizer.json: <s> and </s> must be added tokens");
+    }
+    t.stop_ids_ = {t.eos_id_, t.bos_id_};
   }
   return t;
 }
 
-void Tokenizer::EncodeSegment(std::string_view text, std::vector<std::int32_t>& out) const {
+void Tokenizer::EncodeSentencePiece(std::string_view text, std::vector<std::int32_t>& out) const {
   if (text.empty()) return;
+  // One symbol per character, or per byte where a character has no piece.
+  std::vector<std::int32_t> ids;
+  ids.reserve(text.size());
+  for (std::size_t i = 0; i < text.size();) {
+    const std::size_t length = Utf8Length(text, i);
+    if (length > 0) {
+      const auto found = ids_.find(std::string(text.substr(i, length)));
+      if (found != ids_.end()) {
+        ids.push_back(found->second);
+      } else {
+        for (std::size_t k = 0; k < length; ++k) {
+          ids.push_back(byte_ids_[static_cast<unsigned char>(text[i + k])]);
+        }
+      }
+      i += length;
+    } else {
+      ids.push_back(byte_ids_[static_cast<unsigned char>(text[i])]);
+      ++i;
+    }
+  }
+  MergeSymbols(std::move(ids), out);
+}
 
-  // One symbol per character, or per byte where a character has no piece. They form a linked list
-  // so merging two is constant time.
+void Tokenizer::EncodeByteLevel(std::string_view text, std::vector<std::int32_t>& out) const {
+  if (text.empty()) return;
+  const std::u32string normalized = unicode::Nfc(unicode::Decode(text));
+  const std::u32string_view view(normalized);
+  std::vector<std::int32_t> ids;
+  for (std::size_t i = 0; i < view.size();) {
+    const std::size_t length = QwenMatch(view, i);
+    ids.clear();
+    for (const char byte : unicode::Encode(view.substr(i, length))) {
+      ids.push_back(byte_ids_[static_cast<unsigned char>(byte)]);
+    }
+    MergeSymbols(ids, out);
+    i += length;
+  }
+}
+
+void Tokenizer::MergeSymbols(std::vector<std::int32_t> ids, std::vector<std::int32_t>& out) const {
+  if (ids.empty()) return;
+
+  // The symbols form a linked list, so merging two is constant time.
   struct Symbol {
     std::int32_t id;
     int prev;
@@ -275,27 +475,10 @@ void Tokenizer::EncodeSegment(std::string_view text, std::vector<std::int32_t>& 
     bool alive;
   };
   std::vector<Symbol> symbols;
-  symbols.reserve(text.size());
-  const auto push = [&](std::int32_t id) {
-    const int index = static_cast<int>(symbols.size());
-    symbols.push_back(Symbol{id, index - 1, index + 1, true});
-  };
-  for (std::size_t i = 0; i < text.size();) {
-    const std::size_t length = Utf8Length(text, i);
-    if (length > 0) {
-      const auto found = ids_.find(std::string(text.substr(i, length)));
-      if (found != ids_.end()) {
-        push(found->second);
-      } else {
-        for (std::size_t k = 0; k < length; ++k) {
-          push(byte_ids_[static_cast<unsigned char>(text[i + k])]);
-        }
-      }
-      i += length;
-    } else {
-      push(byte_ids_[static_cast<unsigned char>(text[i])]);
-      ++i;
-    }
+  symbols.reserve(ids.size());
+  for (std::size_t i = 0; i < ids.size(); ++i) {
+    const int index = static_cast<int>(i);
+    symbols.push_back(Symbol{ids[i], index - 1, index + 1, true});
   }
   symbols.back().next = -1;
   const auto at = [&](int index) -> Symbol& { return symbols[static_cast<std::size_t>(index)]; };
@@ -344,10 +527,19 @@ void Tokenizer::EncodeSegment(std::string_view text, std::vector<std::int32_t>& 
 
 std::vector<std::int32_t> Tokenizer::Encode(std::string_view text, bool add_bos) const {
   std::vector<std::int32_t> out;
-  if (add_bos) out.push_back(bos_id_);
+  if (add_bos && bos_id_ >= 0) out.push_back(bos_id_);
   if (text.empty()) return out;
-  const std::string normalized = Normalize(text);
+  // Llama matches special tokens in the normalized text, Qwen in the raw text.
+  const bool byte_level = kind_ == Kind::kByteLevel;
+  const std::string normalized = byte_level ? std::string(text) : Normalize(text);
   const std::string_view view(normalized);
+  const auto encode_segment = [&](std::string_view segment) {
+    if (byte_level) {
+      EncodeByteLevel(segment, out);
+    } else {
+      EncodeSentencePiece(segment, out);
+    }
+  };
   std::size_t segment_start = 0;
   for (std::size_t i = 0; i < view.size();) {
     const Special* match = nullptr;
@@ -361,16 +553,36 @@ std::vector<std::int32_t> Tokenizer::Encode(std::string_view text, bool add_bos)
       ++i;
       continue;
     }
-    EncodeSegment(view.substr(segment_start, i - segment_start), out);
+    encode_segment(view.substr(segment_start, i - segment_start));
     out.push_back(match->id);
     i += match->pattern.size();
     segment_start = i;
   }
-  EncodeSegment(view.substr(segment_start), out);
+  encode_segment(view.substr(segment_start));
   return out;
 }
 
 StatusOr<std::string> Tokenizer::Decode(std::span<const std::int32_t> ids) const {
+  if (kind_ == Kind::kByteLevel) {
+    std::string bytes;
+    for (const std::int32_t id : ids) {
+      if (id < 0 || static_cast<std::size_t>(id) >= pieces_.size()) {
+        return Status::InvalidArgument("token id " + std::to_string(id) +
+                                       " is outside the vocabulary of " +
+                                       std::to_string(pieces_.size()));
+      }
+      const std::string& piece = pieces_[static_cast<std::size_t>(id)];
+      if (is_special_[static_cast<std::size_t>(id)]) {
+        bytes += piece;
+        continue;
+      }
+      for (const char32_t c : unicode::Decode(piece)) {
+        const auto found = stand_in_bytes_.find(c);
+        if (found != stand_in_bytes_.end()) bytes += static_cast<char>(found->second);
+      }
+    }
+    return unicode::Lossy(bytes);
+  }
   std::string text;
   std::string pending;  // bytes from a run of byte pieces, not yet known to be valid UTF-8
   std::size_t pending_count = 0;

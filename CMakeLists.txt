@@ -51,7 +51,8 @@ add_library(ember STATIC
   src/shape.cpp
   src/status.cpp
   src/tensor.cpp
-  src/tokenizer.cpp)
+  src/tokenizer.cpp
+  src/unicode.cpp)
 target_include_directories(ember PUBLIC include)
 target_link_libraries(ember PRIVATE ember_warnings)
 
@@ -130,6 +131,7 @@ if(EMBER_BUILD_TESTS)
     tests/tensor_test.cpp
     tests/timer_test.cpp
     tests/tokenizer_test.cpp
+    tests/unicode_test.cpp
     tests/version_test.cpp)
   target_link_libraries(ember_tests PRIVATE ember GTest::gtest_main)
   target_link_libraries(ember_tests PRIVATE ember_warnings)

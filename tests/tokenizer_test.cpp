@@ -273,4 +273,91 @@ TEST(TokenizerTest, RandomTextRoundTripsThroughTheRealVocab) {
   }
 }
 
+// Qwen3's byte-level tokenizer, when EMBER_QWEN3_DIR points at models/qwen3-0.6b.
+const char* QwenDir() {
+  const char* directory = std::getenv("EMBER_QWEN3_DIR");
+  return directory == nullptr || *directory == '\0' ? nullptr : directory;
+}
+
+TEST(TokenizerTest, Qwen3MatchesHuggingFaceOnEveryReferenceString) {
+  const char* dir = QwenDir();
+  if (dir == nullptr) GTEST_SKIP() << "set EMBER_QWEN3_DIR to models/qwen3-0.6b";
+  const auto t = Tokenizer::Load(std::string(dir) + "/tokenizer.json");
+  ASSERT_TRUE(t.ok()) << t.status().ToString();
+  EXPECT_EQ(t->kind(), Tokenizer::Kind::kByteLevel);
+  EXPECT_EQ(t->vocab_size(), 151669U);
+  EXPECT_EQ(t->bos_id(), -1);
+  EXPECT_EQ(t->stop_ids(), (Ids{151645, 151643}));
+
+  std::ifstream in(EMBER_REFERENCE_DIR "/hf_tokens_qwen3-0.6b.json", std::ios::binary);
+  ASSERT_TRUE(in.good());
+  const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  const auto reference = Json::Parse(text);
+  ASSERT_TRUE(reference.ok()) << reference.status().ToString();
+  const Json* cases = reference->Find("cases");
+  ASSERT_NE(cases, nullptr);
+  ASSERT_EQ(cases->size(), 36U);
+  for (const Json& c : cases->items()) {
+    const std::string& input = c.Find("text")->as_string();
+    SCOPED_TRACE(input);
+    Ids expected;
+    for (const Json& id : c.Find("ids")->items()) {
+      expected.push_back(static_cast<std::int32_t>(*id.as_uint64()));
+    }
+    EXPECT_EQ(t->Encode(input, true), expected);  // Qwen has no begin token to add
+    const auto decoded = t->Decode(expected);
+    ASSERT_TRUE(decoded.ok()) << decoded.status().ToString();
+    EXPECT_EQ(*decoded, c.Find("decoded")->as_string());
+  }
+}
+
+TEST(TokenizerTest, Qwen3RandomTextRoundTrips) {
+  const char* dir = QwenDir();
+  if (dir == nullptr) GTEST_SKIP() << "set EMBER_QWEN3_DIR to models/qwen3-0.6b";
+  const auto t = Tokenizer::Load(std::string(dir) + "/tokenizer.json");
+  ASSERT_TRUE(t.ok()) << t.status().ToString();
+  // Already in NFC, so the text should come back exactly.
+  const std::vector<std::string> alphabet = {"a",
+                                             "e",
+                                             "T",
+                                             "z",
+                                             "0",
+                                             "7",
+                                             " ",
+                                             " ",
+                                             "  ",
+                                             "\n",
+                                             "\r\n",
+                                             "\t",
+                                             ".",
+                                             ",",
+                                             "'",
+                                             "'s",
+                                             "'LL",
+                                             "!",
+                                             "?",
+                                             "#",
+                                             "\xC3\xA9",
+                                             "\xE6\x97\xA5",
+                                             "\xD0\x96",
+                                             "\xF0\x9F\x94\xA5",
+                                             "\xE0\xA4\xA8",
+                                             "\xC2\xA0",
+                                             "<",
+                                             "|",
+                                             ">",
+                                             "im",
+                                             "_"};
+  std::mt19937 rng(20261109);
+  std::uniform_int_distribution<std::size_t> pick(0, alphabet.size() - 1);
+  std::uniform_int_distribution<int> length(0, 40);
+  for (int trial = 0; trial < 2000; ++trial) {
+    std::string text;
+    for (int i = length(rng); i > 0; --i) text += alphabet[pick(rng)];
+    const auto decoded = t->Decode(t->Encode(text, false));
+    ASSERT_TRUE(decoded.ok());
+    ASSERT_EQ(*decoded, text) << "trial " << trial;
+  }
+}
+
 }  // namespace

@@ -1,0 +1,563 @@
+{
+ "about": "Token ids from Hugging Face tokenizers, made by scripts/hf_tokens.py",
+ "model": "qwen3-0.6b",
+ "made_with": {
+  "tokenizers": "0.23.3"
+ },
+ "add_special_tokens": false,
+ "cases": [
+  {
+   "text": "Once upon a time, there was a little girl named Lily. She wanted to play with her little dog",
+   "ids": [
+    12522,
+    5193,
+    264,
+    882,
+    11,
+    1052,
+    572,
+    264,
+    2632,
+    3743,
+    6941,
+    47290,
+    13,
+    2932,
+    4829,
+    311,
+    1486,
+    448,
+    1059,
+    2632,
+    5562
+   ],
+   "decoded": "Once upon a time, there was a little girl named Lily. She wanted to play with her little dog"
+  },
+  {
+   "text": "Hello world",
+   "ids": [
+    9707,
+    1879
+   ],
+   "decoded": "Hello world"
+  },
+  {
+   "text": " Hello",
+   "ids": [
+    21927
+   ],
+   "decoded": " Hello"
+  },
+  {
+   "text": "  two leading spaces",
+   "ids": [
+    220,
+    1378,
+    6388,
+    12621
+   ],
+   "decoded": "  two leading spaces"
+  },
+  {
+   "text": "trailing space ",
+   "ids": [
+    376,
+    14277,
+    3550,
+    220
+   ],
+   "decoded": "trailing space "
+  },
+  {
+   "text": "many     spaces   inside",
+   "ids": [
+    34576,
+    257,
+    12621,
+    256,
+    4766
+   ],
+   "decoded": "many     spaces   inside"
+  },
+  {
+   "text": "line one\nline two\n\nline four",
+   "ids": [
+    1056,
+    825,
+    198,
+    1056,
+    1378,
+    271,
+    1056,
+    3040
+   ],
+   "decoded": "line one\nline two\n\nline four"
+  },
+  {
+   "text": "tabs\tand\ttabs",
+   "ids": [
+    30993,
+    52477,
+    3244,
+    3435
+   ],
+   "decoded": "tabs\tand\ttabs"
+  },
+  {
+   "text": "Numbers: 0 1 42 3.14159 2026-11-09",
+   "ids": [
+    27237,
+    25,
+    220,
+    15,
+    220,
+    16,
+    220,
+    19,
+    17,
+    220,
+    18,
+    13,
+    16,
+    19,
+    16,
+    20,
+    24,
+    220,
+    17,
+    15,
+    17,
+    21,
+    12,
+    16,
+    16,
+    12,
+    15,
+    24
+   ],
+   "decoded": "Numbers: 0 1 42 3.14159 2026-11-09"
+  },
+  {
+   "text": "Punctuation!?.,;:'\"()[]{}<>@#$%^&*-_=+/\\|~`",
+   "ids": [
+    47,
+    72299,
+    57390,
+    2572,
+    26,
+    4884,
+    1,
+    368,
+    1294,
+    6257,
+    21122,
+    31,
+    48077,
+    45899,
+    5,
+    72977,
+    46085,
+    10,
+    34319,
+    91,
+    93,
+    63
+   ],
+   "decoded": "Punctuation!?.,;:'\"()[]{}<>@#$%^&*-_=+/\\|~`"
+  },
+  {
+   "text": "naïve café résumé",
+   "ids": [
+    3376,
+    37572,
+    586,
+    51950,
+    9333,
+    1242,
+    963
+   ],
+   "decoded": "naïve café résumé"
+  },
+  {
+   "text": "Straße über Größe",
+   "ids": [
+    76314,
+    23455,
+    13785,
+    137208
+   ],
+   "decoded": "Straße über Größe"
+  },
+  {
+   "text": "日本語のテキスト",
+   "ids": [
+    101059,
+    102819,
+    15767,
+    56833,
+    61803,
+    70534
+   ],
+   "decoded": "日本語のテキスト"
+  },
+  {
+   "text": "Привет, мир",
+   "ids": [
+    53645,
+    26991,
+    8178,
+    11,
+    137144
+   ],
+   "decoded": "Привет, мир"
+  },
+  {
+   "text": "नमस्ते दुनिया",
+   "ids": [
+    60096,
+    87244,
+    78368,
+    30484,
+    97,
+    34370,
+    14925,
+    99,
+    72653,
+    60096,
+    42311,
+    107,
+    23868
+   ],
+   "decoded": "नमस्ते दुनिया"
+  },
+  {
+   "text": "emoji 🔥🚀 and 👩‍💻",
+   "ids": [
+    37523,
+    95069,
+    98,
+    145836,
+    323,
+    61804,
+    102,
+    378,
+    235,
+    145851
+   ],
+   "decoded": "emoji 🔥🚀 and 👩‍💻"
+  },
+  {
+   "text": "a",
+   "ids": [
+    64
+   ],
+   "decoded": "a"
+  },
+  {
+   "text": "",
+   "ids": [],
+   "decoded": ""
+  },
+  {
+   "text": "<s> is not special in plain text",
+   "ids": [
+    44047,
+    29,
+    374,
+    537,
+    3281,
+    304,
+    14396,
+    1467
+   ],
+   "decoded": "<s> is not special in plain text"
+  },
+  {
+   "text": "unbelievable antidisestablishmentarianism",
+   "ids": [
+    359,
+    31798,
+    23760,
+    3196,
+    84242,
+    33400,
+    478,
+    8821,
+    2142
+   ],
+   "decoded": "unbelievable antidisestablishmentarianism"
+  },
+  {
+   "text": "I'm sure they'll say it's fine, we've DONE it, YOU'RE right, she'd go, I'M",
+   "ids": [
+    40,
+    2776,
+    2704,
+    807,
+    3278,
+    1977,
+    432,
+    594,
+    6915,
+    11,
+    582,
+    3003,
+    54685,
+    432,
+    11,
+    14985,
+    94153,
+    1290,
+    11,
+    1340,
+    4172,
+    728,
+    11,
+    358,
+    27603
+   ],
+   "decoded": "I'm sure they'll say it's fine, we've DONE it, YOU'RE right, she'd go, I'M"
+  },
+  {
+   "text": "ſhe's ſ'S long s",
+   "ids": [
+    144815,
+    383,
+    594,
+    25917,
+    123,
+    13272,
+    1293,
+    274
+   ],
+   "decoded": "ſhe's ſ'S long s"
+  },
+  {
+   "text": "12345 + 678 = 13023, pi is 3.14159",
+   "ids": [
+    16,
+    17,
+    18,
+    19,
+    20,
+    488,
+    220,
+    21,
+    22,
+    23,
+    284,
+    220,
+    16,
+    18,
+    15,
+    17,
+    18,
+    11,
+    8938,
+    374,
+    220,
+    18,
+    13,
+    16,
+    19,
+    16,
+    20,
+    24
+   ],
+   "decoded": "12345 + 678 = 13023, pi is 3.14159"
+  },
+  {
+   "text": "x   y\t\tz   ",
+   "ids": [
+    87,
+    256,
+    379,
+    197,
+    20832,
+    262
+   ],
+   "decoded": "x   y\t\tz   "
+  },
+  {
+   "text": "end with spaces   ",
+   "ids": [
+    408,
+    448,
+    12621,
+    262
+   ],
+   "decoded": "end with spaces   "
+  },
+  {
+   "text": "a\r\nb\n\n\nc\r\n  \n d",
+   "ids": [
+    64,
+    319,
+    65,
+    1406,
+    66,
+    319,
+    2303,
+    294
+   ],
+   "decoded": "a\r\nb\n\n\nc\r\n  \n d"
+  },
+  {
+   "text": "   leading spaces then words",
+   "ids": [
+    256,
+    6388,
+    12621,
+    1221,
+    4244
+   ],
+   "decoded": "   leading spaces then words"
+  },
+  {
+   "text": " no-break　ideographic em space",
+   "ids": [
+    4102,
+    2152,
+    34349,
+    22441,
+    94007,
+    378,
+    225,
+    336,
+    3550
+   ],
+   "decoded": " no-break　ideographic em space"
+  },
+  {
+   "text": "é decomposed, é composed, 각 jamo, Å",
+   "ids": [
+    963,
+    28502,
+    3865,
+    11,
+    3958,
+    23415,
+    11,
+    126804,
+    20072,
+    78,
+    11,
+    79252
+   ],
+   "decoded": "é decomposed, é composed, 각 jamo, Å"
+  },
+  {
+   "text": "!!! ??? ... --- `` ;; @@ '' \"\"",
+   "ids": [
+    12069,
+    51317,
+    2503,
+    12448,
+    9902,
+    13667,
+    22307,
+    3355,
+    1591
+   ],
+   "decoded": "!!! ??? ... --- `` ;; @@ '' \"\""
+  },
+  {
+   "text": " !hello ?world",
+   "ids": [
+    753,
+    14990,
+    937,
+    14615
+   ],
+   "decoded": " !hello ?world"
+  },
+  {
+   "text": "<|im_start|>user\nWhat is 2+2?<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+   "ids": [
+    151644,
+    872,
+    198,
+    3838,
+    374,
+    220,
+    17,
+    10,
+    17,
+    30,
+    151645,
+    198,
+    151644,
+    77091,
+    198,
+    151667,
+    271,
+    151668,
+    271
+   ],
+   "decoded": "<|im_start|>user\nWhat is 2+2?<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "text": "text<|endoftext|>more text<|im_end|>",
+   "ids": [
+    1318,
+    151643,
+    6384,
+    1467,
+    151645
+   ],
+   "decoded": "text<|endoftext|>more text<|im_end|>"
+  },
+  {
+   "text": "def f(x):\n    return x ** 2  # square\n\nprint(f(3))",
+   "ids": [
+    750,
+    282,
+    2075,
+    982,
+    262,
+    470,
+    856,
+    3070,
+    220,
+    17,
+    220,
+    671,
+    9334,
+    271,
+    1350,
+    955,
+    7,
+    18,
+    593
+   ],
+   "decoded": "def f(x):\n    return x ** 2  # square\n\nprint(f(3))"
+  },
+  {
+   "text": "مرحبا שלום สวัสดี",
+   "ids": [
+    124122,
+    29825,
+    124671,
+    124756,
+    123881,
+    129328,
+    37213,
+    23271,
+    125136,
+    28319
+   ],
+   "decoded": "مرحبا שלום สวัสดี"
+  },
+  {
+   "text": "😀🚀 mixed👍🏽",
+   "ids": [
+    141334,
+    145836,
+    9519,
+    144349,
+    145375
+   ],
+   "decoded": "😀🚀 mixed👍🏽"
+  }
+ ]
+}

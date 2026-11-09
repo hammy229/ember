@@ -1,6 +1,6 @@
 {
  "about": "Token ids from Hugging Face tokenizers, made by scripts/hf_tokens.py",
- "model": "nickypro/tinyllama-15M",
+ "model": "tinyllama-15M",
  "made_with": {
   "tokenizers": "0.23.3"
  },
