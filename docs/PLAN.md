@@ -14,10 +14,10 @@ Ember is an LLM inference engine written from scratch in C++20, with no ML frame
 | Sat, Nov 7 | Load model weights with memory mapping (15M parameter tiny model), fuzz the loader against corrupt files | Done |
 | Sun, Nov 8 | Attention and the full forward pass | Done |
 | Mon, Nov 9 | **Milestone 1: logits match Hugging Face**, checked in CI from a saved reference | Done |
-| Mon, Nov 9 (night) | Tokenizer, sampling, KV cache, text generation, per-token uncertainty (entropy and top-2 margin) || Done |
-| Tue, Nov 10 | **Milestone 2: text generation in the browser**, private deploy; Qwen3 0.6B on the Mac, NEON SIMD with before-and-after benchmarks | Done Nov 9, except the deploy |
-| Wed, Nov 11 | Same model against llama.cpp, multithreading, 8-bit quantization and quality report; `ember route` and the routing eval, run overnight | Done Nov 9 except llama.cpp and the final speed numbers; GSM8K run in progress |
-| Thu, Nov 12 | MedData due 2pm CST. Autograd with gradients checked, native and in-browser training, attention maps and logit lens, routing view, final benchmarks, reviews, demo video | Autograd, training, routing view, attention maps, and logit lens done Nov 9; final benchmarks, reviews, and video left |
+| Mon, Nov 9 | Tokenizers, KV cache, sampling, generation, browser demo, Qwen3 0.6B, threads, 8-bit weights and report, llama.cpp comparison, `ember route` and its GSM8K eval (running), autograd and training, attention maps and logit lens | Done |
+| Tue, Nov 10 | Routing results from the finished GSM8K run, pick `ember route`'s threshold on held-out questions, results page and README row | |
+| Wed, Nov 11 | Site numbers for Qwen3, 8 bits, llama.cpp, and routing; rerun results and coverage on an idle machine; new screenshots; private deploy | |
+| Thu, Nov 12 | MedData due 2pm CST. Code and security review fixes, demo video shot list, launch post draft | |
 | Fri, Nov 13 | **Publish day:** site live, resume update, launch post with the routing result | |
 | Nov 14 to 20 | Fixes, and anything that missed Thursday ships as an update | |
 
