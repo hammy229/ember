@@ -27,9 +27,10 @@ int Usage() {
   std::cerr
       << "usage: ember                    print the version\n"
          "       ember inspect MODEL_DIR  load a model and describe it\n"
-         "       ember logits MODEL_DIR [--out FILE] TOKEN_ID...\n"
+         "       ember logits MODEL_DIR [--out FILE] [--q8] [--threads N] TOKEN_ID...\n"
          "                                run the model and show the likeliest next tokens;\n"
          "                                --out saves every logit as little-endian f32\n"
+         "       ember tokenize MODEL_DIR TEXT  print the token ids of TEXT, one line\n"
          "       ember generate MODEL_DIR [options] PROMPT\n"
          "                                continue the prompt, printing text as it comes\n"
          "         --tokens N   new tokens at most (default 128)\n"
@@ -69,8 +70,8 @@ int Inspect(const std::string& directory) {
 }
 
 int Logits(const std::string& directory, const std::string& out_path,
-           const std::vector<std::int32_t>& tokens) {
-  const auto model = ember::LlamaModel::Load(directory);
+           const std::vector<std::int32_t>& tokens, const ember::LoadOptions& load) {
+  const auto model = ember::LlamaModel::Load(directory, load);
   if (!model.ok()) {
     std::cerr << "error: " << model.status().ToString() << '\n';
     return 1;
@@ -111,21 +112,46 @@ int RunLogits(int argc, char** argv) {
   if (argc < 4) return Usage();
   const std::string directory = argv[2];
   std::string out_path;
-  int first = 3;
-  if (std::string_view(argv[3]) == "--out") {
-    if (argc < 6) return Usage();
-    out_path = argv[4];
-    first = 5;
-  }
+  ember::LoadOptions load;
   std::vector<std::int32_t> tokens;
-  for (int i = first; i < argc; ++i) {
+  for (int i = 3; i < argc; ++i) {
     const std::string_view text = argv[i];
+    if (text == "--out" && i + 1 < argc) {
+      out_path = argv[++i];
+      continue;
+    }
+    if (text == "--q8") {
+      load.q8 = true;
+      continue;
+    }
+    if (text == "--threads" && i + 1 < argc) {
+      int threads = 0;
+      const std::string_view value = argv[++i];
+      const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), threads);
+      if (error != std::errc() || end != value.data() + value.size() || threads < 1) return Usage();
+      ember::SetThreadCount(static_cast<std::size_t>(threads));
+      continue;
+    }
     std::int32_t token = 0;
     const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), token);
     if (error != std::errc() || end != text.data() + text.size()) return Usage();
     tokens.push_back(token);
   }
-  return Logits(directory, out_path, tokens);
+  if (tokens.empty()) return Usage();
+  return Logits(directory, out_path, tokens, load);
+}
+
+int RunTokenize(int argc, char** argv) {
+  if (argc != 4) return Usage();
+  const auto tokenizer = ember::Tokenizer::Load(std::string(argv[2]) + "/tokenizer.json");
+  if (!tokenizer.ok()) {
+    std::cerr << "error: " << tokenizer.status().ToString() << '\n';
+    return 1;
+  }
+  const std::vector<std::int32_t> ids = tokenizer->Encode(argv[3], true);
+  for (std::size_t i = 0; i < ids.size(); ++i) std::cout << (i ? " " : "") << ids[i];
+  std::cout << '\n';
+  return 0;
 }
 
 // Parses a whole argument as a number, or fails.
@@ -394,5 +420,6 @@ int main(int argc, char** argv) {
   if (command == "logits") return RunLogits(argc, argv);
   if (command == "generate") return RunGenerate(argc, argv);
   if (command == "batch") return RunBatch(argc, argv);
+  if (command == "tokenize") return RunTokenize(argc, argv);
   return Usage();
 }
