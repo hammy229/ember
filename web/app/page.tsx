@@ -22,12 +22,13 @@ const MODEL_TIMES = [
 ];
 const MODEL_SLOWEST = Math.max(...MODEL_TIMES.map((row) => row.ms));
 
-// Same file. Each figure says what produced it.
+// From docs/results/2026-11-09-apple-m4.md, the next run of the same script. Each figure says what
+// produced it.
 const MODEL_FACTS = [
-  { value: "4.2e-5", label: "largest difference from a separate Llama, across all 32,000 logits" },
-  { value: "156 / 156", label: "positions where both pick the same next token" },
-  { value: "815", label: "tokens a second on one thread, with 147 MB for the whole process" },
-  { value: "97.8%", label: "of the engine's lines run by its 326 tests" },
+  { value: "3.0e-5", label: "largest difference from Hugging Face's own logits, checked on every push" },
+  { value: "156 / 156", label: "positions where Ember and Hugging Face pick the same next token" },
+  { value: "814", label: "tokens a second on one thread, with 147 MB for the whole process" },
+  { value: "97.8%", label: "of the engine's lines run by its 328 tests" },
 ];
 
 const PROOF = [
@@ -129,11 +130,12 @@ export default function Home() {
 
         <section className="band" id="model">
           <div className="band-wide">
-            <h2>A real model, checked against a second one.</h2>
+            <h2>A real model, checked against Hugging Face.</h2>
             <p className="band-lead">
               Ember loads a 15M parameter Llama trained on children&apos;s stories and runs it to the
-              last logit. After &ldquo;Once upon a time&rdquo; it picks a comma. A separate Llama
-              written in NumPy agrees with every one of its 32,000 scores.
+              last logit. After &ldquo;Once upon a time&rdquo; it picks a comma, and so does Hugging
+              Face&apos;s own library, with scores that agree to within 0.00003. A separate Llama
+              written in NumPy agrees with every one of the 32,000.
             </p>
           </div>
 
