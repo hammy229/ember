@@ -43,7 +43,7 @@ For each head, attention computes `softmax(q k^T / sqrt(head_dim)) v`, with the 
 
 ## How it was checked
 
-Three ways, from cheapest to strongest:
+Four ways, from cheapest to strongest:
 
 1. **Each piece against its definition.** `tests/layers_test.cpp` checks every layer against the formula written out in double precision, plus properties: RoPE at position 0 changes nothing, and a query and key rotated by positions 7 and 3 score the same as at 104 and 100.
 2. **The whole pass against a second implementation.** `tests/forward_test.cpp` runs random tiny models (tied and untied, f32 and f16, grouped-query attention, one to eight tokens) through `Forward` and through a separate Llama written with plain loops in double. They must agree within `1e-4`. Changing the sign of one term in RoPE makes three of the four comparisons fail, so the test does catch a real bug. It also checks that adding tokens never changes an earlier row's logits.
@@ -54,10 +54,19 @@ Three ways, from cheapest to strongest:
 python3 scripts/reference_logits.py models/tinyllama-15M /tmp/logits.f32 1 9038 2501 263 931
 ```
 
-All three were written for this project, so they could share a misreading of the architecture. The independent check, logits matching Hugging Face's own `transformers` in CI, is Milestone 1.
+All three were written for this project, so they could share a misreading of the architecture. The fourth check was not:
+
+4. **The real model against Hugging Face.** `scripts/hf_reference.py` runs the same model and the same 156 positions through `transformers` itself (float32, eager attention, versions pinned in the script) and saves part of each row in `tests/reference/`: the 10 highest logits, every 500th logit, and the logsumexp, mean, and root mean square of all 32,000. `tests/hf_reference_test.cpp` runs Ember on those tokens and compares within `1e-4`. The largest difference is `3.0e-5` on the release build ([docs/results/2026-11-09-apple-m4.md](results/2026-11-09-apple-m4.md)). CI downloads the model and runs this on GCC for x86, under AddressSanitizer and UBSan, and on Apple clang for ARM, and prints each platform's difference in the log. Doubling RoPE's theta, a 10x larger RMS norm eps, or shifting only the keys by one position each make it fail. (Shifting queries and keys together passes, correctly: RoPE only sees the distance between them.)
+
+```sh
+./scripts/fetch-model.sh
+EMBER_MODEL_DIR=models/tinyllama-15M ./build/release/ember_tests --gtest_filter='HfReferenceTest.*'
+```
+
+The saved file cannot see one unlikely token with a wrong logit that is neither in the top 10 nor on the every-500th grid. The NumPy check compares every logit, so the two together cover it. PyTorch is needed only to remake the file (`uv run scripts/hf_reference.py`), never in CI.
 
 ## Not done yet
 
 - There is no KV cache, so generating each new token reprocesses the whole sequence.
 - There is no tokenizer, so the CLI takes token ids.
-- Everything runs on one thread. `Linear` uses 4-wide SIMD registers through the compiler's vector types, but there are no hand-tuned kernels yet, and NumPy with Apple's BLAS is still 7.5x faster on the same model ([results](results/2026-11-08-apple-m4.md)).
+- Everything runs on one thread. `Linear` uses 4-wide SIMD registers through the compiler's vector types, but there are no hand-tuned kernels yet, and NumPy with Apple's BLAS is still 7.5x faster on the same model ([results](results/2026-11-09-apple-m4.md)).
