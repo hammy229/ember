@@ -191,17 +191,22 @@ StatusOr<LlamaConfig> LlamaConfig::FromJson(std::string_view json_text) {
 }
 
 std::size_t LlamaModel::CountParameters() const {
-  std::size_t count = weights_.embedding.element_count() + weights_.final_norm.element_count();
-  if (!config_.tie_word_embeddings) count += weights_.lm_head.element_count();
+  // A matrix is counted once, whether it is kept in f32 or in 8 bits. An empty view has rank 0.
+  const auto size = [](const TensorView& view) {
+    return view.rank() == 0 ? std::size_t{0} : view.element_count();
+  };
+  const auto matrix = [&](const TensorView& view, const Q8Matrix& q8) {
+    return q8.empty() ? size(view) : q8.rows * q8.cols;
+  };
+  std::size_t count = size(weights_.embedding) + size(weights_.final_norm);
+  if (!config_.tie_word_embeddings) count += matrix(weights_.lm_head, weights_.lm_head_q8);
   for (const LlamaLayer& layer : weights_.layers) {
-    for (const TensorView* weight :
-         {&layer.attention_norm, &layer.query, &layer.key, &layer.value, &layer.output,
-          &layer.mlp_norm, &layer.gate, &layer.up, &layer.down}) {
-      count += weight->element_count();
-    }
-    if (config_.qk_norm) {
-      count += layer.query_norm.element_count() + layer.key_norm.element_count();
-    }
+    count += size(layer.attention_norm) + size(layer.mlp_norm);
+    count += matrix(layer.query, layer.query_q8) + matrix(layer.key, layer.key_q8) +
+             matrix(layer.value, layer.value_q8) + matrix(layer.output, layer.output_q8) +
+             matrix(layer.gate, layer.gate_q8) + matrix(layer.up, layer.up_q8) +
+             matrix(layer.down, layer.down_q8);
+    if (config_.qk_norm) count += size(layer.query_norm) + size(layer.key_norm);
   }
   return count;
 }
@@ -236,64 +241,45 @@ StatusOr<std::unique_ptr<LlamaModel>> LlamaModel::FromBytes(std::string_view con
   return model;
 }
 
-// Binds the weights and, for q8, quantizes the matrices. Widened f32 copies made only to be
-// quantized go in a scratch arena that is dropped at the end, so an 8-bit model really is smaller.
+// Binds the weights. For q8, each matrix is quantized straight from the file a row at a time and
+// its file pages are released, and the tensors that stay f32 are copied out so the file can be
+// unmapped. The full f32 model never exists in memory.
 Status LlamaModel::Finish(std::span<const std::byte> safetensors, const LoadOptions& options) {
-  if (!options.q8) {
-    EMBER_RETURN_IF_ERROR(Bind(safetensors, arena_));
-    parameter_count_ = CountParameters();
-    return Status::Ok();
-  }
-  Arena scratch;
-  EMBER_RETURN_IF_ERROR(Bind(safetensors, scratch));
+  EMBER_RETURN_IF_ERROR(Bind(safetensors, options.q8));
   parameter_count_ = CountParameters();
+  if (!options.q8) return Status::Ok();
   const std::byte* const file_begin = safetensors.data();
   const std::byte* const file_end = safetensors.data() + safetensors.size();
-  // Tensors that stay f32 move out of the scratch arena, unless they point into the file itself.
   const auto keep = [&](TensorView& view) -> Status {
     if (view.element_count() == 0 || view.rank() == 0) return Status::Ok();
     const auto* data = static_cast<const std::byte*>(view.raw_data());
-    if (data >= file_begin && data < file_end) return Status::Ok();
+    if (data < file_begin || data >= file_end) return Status::Ok();
     EMBER_ASSIGN_OR_RETURN(const Tensor copy, Tensor::CopyOf(arena_, view));
     view = TensorView(copy);
     return Status::Ok();
   };
-  const auto quantize = [&](TensorView& view, Q8Matrix& q8) -> Status {
-    EMBER_ASSIGN_OR_RETURN(q8, QuantizeQ8(view, arena_));
-    view = TensorView();
-    return Status::Ok();
-  };
-  EMBER_ASSIGN_OR_RETURN(weights_.lm_head_q8, QuantizeQ8(weights_.lm_head, arena_));
-  weights_.lm_head = TensorView();
   EMBER_RETURN_IF_ERROR(keep(weights_.embedding));
   EMBER_RETURN_IF_ERROR(keep(weights_.final_norm));
   for (LlamaLayer& layer : weights_.layers) {
-    EMBER_RETURN_IF_ERROR(keep(layer.attention_norm));
-    EMBER_RETURN_IF_ERROR(keep(layer.mlp_norm));
-    if (config_.qk_norm) {
-      EMBER_RETURN_IF_ERROR(keep(layer.query_norm));
-      EMBER_RETURN_IF_ERROR(keep(layer.key_norm));
+    for (TensorView* view :
+         {&layer.attention_norm, &layer.mlp_norm, &layer.query_norm, &layer.key_norm}) {
+      EMBER_RETURN_IF_ERROR(keep(*view));
     }
-    EMBER_RETURN_IF_ERROR(quantize(layer.query, layer.query_q8));
-    EMBER_RETURN_IF_ERROR(quantize(layer.key, layer.key_q8));
-    EMBER_RETURN_IF_ERROR(quantize(layer.value, layer.value_q8));
-    EMBER_RETURN_IF_ERROR(quantize(layer.output, layer.output_q8));
-    EMBER_RETURN_IF_ERROR(quantize(layer.gate, layer.gate_q8));
-    EMBER_RETURN_IF_ERROR(quantize(layer.up, layer.up_q8));
-    EMBER_RETURN_IF_ERROR(quantize(layer.down, layer.down_q8));
   }
+  file_ = MappedFile();  // nothing points into it any more
   q8_ = true;
   return Status::Ok();
 }
 
-Status LlamaModel::Bind(std::span<const std::byte> safetensors, Arena& widen_into) {
+Status LlamaModel::Bind(std::span<const std::byte> safetensors, bool quantize) {
   EMBER_ASSIGN_OR_RETURN(const Safetensors file, Safetensors::Parse(safetensors));
   const LlamaConfig& c = config_;
   std::vector<bool> used(file.tensors().size(), false);
 
-  // Finds one weight, checks its shape, and gives it back as contiguous f32.
-  const auto bind = [&](const std::string& name,
-                        std::initializer_list<std::size_t> dims) -> StatusOr<TensorView> {
+  // Finds one weight and checks its shape.
+  const auto find =
+      [&](const std::string& name,
+          std::initializer_list<std::size_t> dims) -> StatusOr<const Safetensors::Entry*> {
     const Safetensors::Entry* entry = file.Find(name);
     if (entry == nullptr) return Status::InvalidFormat("missing weight " + name);
     used[static_cast<std::size_t>(entry - file.tensors().data())] = true;
@@ -302,29 +288,50 @@ Status LlamaModel::Bind(std::span<const std::byte> safetensors, Arena& widen_int
       return Status::InvalidFormat(name + " is " + entry->shape.ToString() + ", expected " +
                                    expected.ToString());
     }
+    return entry;
+  };
+
+  // Finds one weight and gives it back as contiguous f32.
+  const auto bind = [&](const std::string& name,
+                        std::initializer_list<std::size_t> dims) -> StatusOr<TensorView> {
+    EMBER_ASSIGN_OR_RETURN(const Safetensors::Entry* entry, find(name, dims));
+    const Shape expected = entry->shape;
     if (entry->dtype == DType::kF32) {
       StatusOr<TensorView> view = Safetensors::View(*entry);
       if (view.ok()) return view;
       // Misaligned in the file, so copy it somewhere aligned.
       EMBER_ASSIGN_OR_RETURN(const Tensor copy,
-                             Tensor::Uninitialized(widen_into, DType::kF32, expected));
+                             Tensor::Uninitialized(arena_, DType::kF32, expected));
       std::memcpy(copy.raw_data(), entry->bytes.data(), entry->bytes.size());
       return TensorView(copy);
     }
     if (entry->dtype == DType::kF16) {
       EMBER_ASSIGN_OR_RETURN(const Tensor widened,
-                             Tensor::Uninitialized(widen_into, DType::kF32, expected));
+                             Tensor::Uninitialized(arena_, DType::kF32, expected));
       F16ToF32(entry->bytes.data(), expected.element_count(), widened.data<float>());
       return TensorView(widened);
     }
     if (entry->dtype == DType::kBF16) {
       EMBER_ASSIGN_OR_RETURN(const Tensor widened,
-                             Tensor::Uninitialized(widen_into, DType::kF32, expected));
+                             Tensor::Uninitialized(arena_, DType::kF32, expected));
       BF16ToF32(entry->bytes.data(), expected.element_count(), widened.data<float>());
       return TensorView(widened);
     }
     return Status::InvalidFormat(name + " is " + std::string(Name(entry->dtype)) +
                                  ", but weights must be f32, f16, or bf16");
+  };
+
+  // A matrix: as f32, or with `quantize` as 8 bits straight from the file, whose pages then go.
+  const auto matrix = [&](const std::string& name, std::size_t rows, std::size_t cols,
+                          TensorView& view, Q8Matrix& q8) -> Status {
+    if (!quantize) {
+      EMBER_ASSIGN_OR_RETURN(view, bind(name, {rows, cols}));
+      return Status::Ok();
+    }
+    EMBER_ASSIGN_OR_RETURN(const Safetensors::Entry* entry, find(name, {rows, cols}));
+    EMBER_ASSIGN_OR_RETURN(q8, QuantizeQ8(entry->dtype, entry->bytes, rows, cols, arena_));
+    file_.Release(entry->bytes);
+    return Status::Ok();
   };
 
   const std::size_t q_width = c.head_count * c.head_dim;
@@ -337,22 +344,22 @@ Status LlamaModel::Bind(std::span<const std::byte> safetensors, Arena& widen_int
     LlamaLayer& layer = weights_.layers[i];
     EMBER_ASSIGN_OR_RETURN(layer.attention_norm,
                            bind(prefix + "input_layernorm.weight", {c.hidden_size}));
-    EMBER_ASSIGN_OR_RETURN(layer.query,
-                           bind(prefix + "self_attn.q_proj.weight", {q_width, c.hidden_size}));
-    EMBER_ASSIGN_OR_RETURN(layer.key,
-                           bind(prefix + "self_attn.k_proj.weight", {kv_width, c.hidden_size}));
-    EMBER_ASSIGN_OR_RETURN(layer.value,
-                           bind(prefix + "self_attn.v_proj.weight", {kv_width, c.hidden_size}));
-    EMBER_ASSIGN_OR_RETURN(layer.output,
-                           bind(prefix + "self_attn.o_proj.weight", {c.hidden_size, q_width}));
+    EMBER_RETURN_IF_ERROR(matrix(prefix + "self_attn.q_proj.weight", q_width, c.hidden_size,
+                                 layer.query, layer.query_q8));
+    EMBER_RETURN_IF_ERROR(matrix(prefix + "self_attn.k_proj.weight", kv_width, c.hidden_size,
+                                 layer.key, layer.key_q8));
+    EMBER_RETURN_IF_ERROR(matrix(prefix + "self_attn.v_proj.weight", kv_width, c.hidden_size,
+                                 layer.value, layer.value_q8));
+    EMBER_RETURN_IF_ERROR(matrix(prefix + "self_attn.o_proj.weight", c.hidden_size, q_width,
+                                 layer.output, layer.output_q8));
     EMBER_ASSIGN_OR_RETURN(layer.mlp_norm,
                            bind(prefix + "post_attention_layernorm.weight", {c.hidden_size}));
-    EMBER_ASSIGN_OR_RETURN(
-        layer.gate, bind(prefix + "mlp.gate_proj.weight", {c.intermediate_size, c.hidden_size}));
-    EMBER_ASSIGN_OR_RETURN(
-        layer.up, bind(prefix + "mlp.up_proj.weight", {c.intermediate_size, c.hidden_size}));
-    EMBER_ASSIGN_OR_RETURN(
-        layer.down, bind(prefix + "mlp.down_proj.weight", {c.hidden_size, c.intermediate_size}));
+    EMBER_RETURN_IF_ERROR(matrix(prefix + "mlp.gate_proj.weight", c.intermediate_size,
+                                 c.hidden_size, layer.gate, layer.gate_q8));
+    EMBER_RETURN_IF_ERROR(matrix(prefix + "mlp.up_proj.weight", c.intermediate_size, c.hidden_size,
+                                 layer.up, layer.up_q8));
+    EMBER_RETURN_IF_ERROR(matrix(prefix + "mlp.down_proj.weight", c.hidden_size,
+                                 c.intermediate_size, layer.down, layer.down_q8));
     if (c.qk_norm) {
       EMBER_ASSIGN_OR_RETURN(layer.query_norm,
                              bind(prefix + "self_attn.q_norm.weight", {c.head_dim}));
@@ -361,7 +368,15 @@ Status LlamaModel::Bind(std::span<const std::byte> safetensors, Arena& widen_int
     }
   }
   EMBER_ASSIGN_OR_RETURN(weights_.final_norm, bind("model.norm.weight", {c.hidden_size}));
-  if (c.tie_word_embeddings) {
+  if (c.tie_word_embeddings && quantize) {
+    EMBER_ASSIGN_OR_RETURN(weights_.lm_head_q8, QuantizeQ8(weights_.embedding, arena_));
+    if (const Safetensors::Entry* head = file.Find("lm_head.weight"); head != nullptr) {
+      used[static_cast<std::size_t>(head - file.tensors().data())] = true;
+    }
+  } else if (!c.tie_word_embeddings && quantize) {
+    EMBER_RETURN_IF_ERROR(matrix("lm_head.weight", c.vocab_size, c.hidden_size, weights_.lm_head,
+                                 weights_.lm_head_q8));
+  } else if (c.tie_word_embeddings) {
     weights_.lm_head = weights_.embedding;
     // Some files save the tied copy anyway. Hugging Face ignores it, and so does Ember.
     if (const Safetensors::Entry* head = file.Find("lm_head.weight"); head != nullptr) {

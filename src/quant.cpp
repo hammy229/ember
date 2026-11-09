@@ -6,7 +6,9 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <vector>
 
+#include "ember/f16.h"
 #include "ember/threads.h"
 
 namespace ember {
@@ -42,41 +44,86 @@ float Block(const float* x, const std::int8_t* w) {
 
 }  // namespace
 
-StatusOr<Q8Matrix> QuantizeQ8(const TensorView& weight, Arena& arena) {
-  if (weight.dtype() != DType::kF32 || weight.rank() != 2 || !weight.is_contiguous() ||
-      weight.dim(1) % Q8Matrix::kBlock != 0) {
-    return Status::InvalidArgument(
-        "QuantizeQ8 needs a contiguous f32 matrix whose rows are a "
-        "multiple of 32 long, got " +
-        weight.ToString());
-  }
-  Q8Matrix q;
-  q.rows = weight.dim(0);
-  q.cols = weight.dim(1);
-  const std::size_t blocks = q.rows * (q.cols / Q8Matrix::kBlock);
-  EMBER_ASSIGN_OR_RETURN(std::byte* const values, arena.Allocate(q.rows * q.cols));
-  EMBER_ASSIGN_OR_RETURN(std::byte* const scales, arena.Allocate(blocks * sizeof(float)));
-  auto* const v = reinterpret_cast<std::int8_t*>(values);
-  auto* const s = reinterpret_cast<float*>(scales);
-  const float* const w = weight.data<float>();
-  for (std::size_t b = 0; b < blocks; ++b) {
-    const float* const from = w + b * Q8Matrix::kBlock;
+namespace {
+
+// Quantizes one row of `cols` floats into values and scales.
+Status QuantizeRow(const float* from, std::size_t cols, std::int8_t* values, float* scales) {
+  for (std::size_t b = 0; b < cols / Q8Matrix::kBlock; ++b) {
+    const float* const block = from + b * Q8Matrix::kBlock;
     float largest = 0;
     for (std::size_t k = 0; k < Q8Matrix::kBlock; ++k) {
-      if (!std::isfinite(from[k])) {
+      if (!std::isfinite(block[k])) {
         return Status::InvalidArgument("QuantizeQ8 found a weight that is not a finite number");
       }
-      largest = std::max(largest, std::abs(from[k]));
+      largest = std::max(largest, std::abs(block[k]));
     }
     const float scale = largest / 127.0F;
-    s[b] = scale;
+    scales[b] = scale;
     for (std::size_t k = 0; k < Q8Matrix::kBlock; ++k) {
-      const float step = scale == 0 ? 0 : std::nearbyint(from[k] / scale);
-      v[b * Q8Matrix::kBlock + k] = static_cast<std::int8_t>(std::clamp(step, -127.0F, 127.0F));
+      const float step = scale == 0 ? 0 : std::nearbyint(block[k] / scale);
+      values[b * Q8Matrix::kBlock + k] =
+          static_cast<std::int8_t>(std::clamp(step, -127.0F, 127.0F));
     }
   }
-  q.values = v;
-  q.scales = s;
+  return Status::Ok();
+}
+
+StatusOr<Q8Matrix> Allocate(std::size_t rows, std::size_t cols, Arena& arena) {
+  if (cols == 0 || cols % Q8Matrix::kBlock != 0) {
+    return Status::InvalidArgument("QuantizeQ8 needs rows a multiple of 32 long, got " +
+                                   std::to_string(cols));
+  }
+  Q8Matrix q;
+  q.rows = rows;
+  q.cols = cols;
+  EMBER_ASSIGN_OR_RETURN(std::byte* const values, arena.Allocate(rows * cols));
+  EMBER_ASSIGN_OR_RETURN(std::byte* const scales,
+                         arena.Allocate(rows * (cols / Q8Matrix::kBlock) * sizeof(float)));
+  q.values = reinterpret_cast<std::int8_t*>(values);
+  q.scales = reinterpret_cast<float*>(scales);
+  return q;
+}
+
+}  // namespace
+
+StatusOr<Q8Matrix> QuantizeQ8(const TensorView& weight, Arena& arena) {
+  if (weight.dtype() != DType::kF32 || weight.rank() != 2 || !weight.is_contiguous()) {
+    return Status::InvalidArgument("QuantizeQ8 needs a contiguous f32 matrix, got " +
+                                   weight.ToString());
+  }
+  EMBER_ASSIGN_OR_RETURN(Q8Matrix q, Allocate(weight.dim(0), weight.dim(1), arena));
+  const std::size_t blocks = q.cols / Q8Matrix::kBlock;
+  for (std::size_t r = 0; r < q.rows; ++r) {
+    EMBER_RETURN_IF_ERROR(QuantizeRow(weight.data<float>() + r * q.cols, q.cols,
+                                      const_cast<std::int8_t*>(q.values) + r * q.cols,
+                                      const_cast<float*>(q.scales) + r * blocks));
+  }
+  return q;
+}
+
+StatusOr<Q8Matrix> QuantizeQ8(DType dtype, std::span<const std::byte> bytes, std::size_t rows,
+                              std::size_t cols, Arena& arena) {
+  const std::size_t width = dtype == DType::kF32 ? 4 : 2;
+  if ((dtype != DType::kF32 && dtype != DType::kF16 && dtype != DType::kBF16) ||
+      bytes.size() != rows * cols * width) {
+    return Status::InvalidArgument("QuantizeQ8 needs f32, f16, or bf16 bytes of the right size");
+  }
+  EMBER_ASSIGN_OR_RETURN(Q8Matrix q, Allocate(rows, cols, arena));
+  const std::size_t blocks = cols / Q8Matrix::kBlock;
+  std::vector<float> row(cols);
+  for (std::size_t r = 0; r < rows; ++r) {
+    const std::byte* const from = bytes.data() + r * cols * width;
+    if (dtype == DType::kF32) {
+      std::memcpy(row.data(), from, cols * sizeof(float));
+    } else if (dtype == DType::kF16) {
+      F16ToF32(from, cols, row.data());
+    } else {
+      BF16ToF32(from, cols, row.data());
+    }
+    EMBER_RETURN_IF_ERROR(QuantizeRow(row.data(), cols,
+                                      const_cast<std::int8_t*>(q.values) + r * cols,
+                                      const_cast<float*>(q.scales) + r * blocks));
+  }
   return q;
 }
 

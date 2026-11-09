@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 #include "ember/arena.h"
 #include "ember/status_or.h"
@@ -29,6 +30,11 @@ struct Q8Matrix {
 // arena. Each block's scale is its largest absolute value / 127 and each value is rounded to
 // nearest, so no weight moves by more than half a step. An all-zero block gets scale 0.
 StatusOr<Q8Matrix> QuantizeQ8(const TensorView& weight, Arena& arena);
+
+// The same from raw f32, f16, or bf16 bytes, a row at a time, so a big matrix never needs a full
+// f32 copy. This is how the loader makes 8-bit models without first widening them.
+StatusOr<Q8Matrix> QuantizeQ8(DType dtype, std::span<const std::byte> bytes, std::size_t rows,
+                              std::size_t cols, Arena& arena);
 
 // The same as Linear with the quantized weight: x [rows, in] times weight [features, in] turned
 // sideways, into out [rows, features]. Split across threads like Linear, with the same answer for

@@ -34,6 +34,9 @@ class MappedFile {
 
   std::span<const std::byte> bytes() const { return {data_, size_}; }
   std::size_t size() const { return size_; }
+  // Tells the system these bytes of the file will not be needed again soon, so it can drop their
+  // pages. Reading them later still works; they come back from disk.
+  void Release(std::span<const std::byte> part) const;
 
  private:
   MappedFile(const std::byte* data, std::size_t size) : data_(data), size_(size) {}

@@ -106,7 +106,7 @@ class LlamaModel {
 
  private:
   LlamaModel() = default;
-  Status Bind(std::span<const std::byte> safetensors, Arena& widen_into);
+  Status Bind(std::span<const std::byte> safetensors, bool quantize);
   Status Finish(std::span<const std::byte> safetensors, const LoadOptions& options);
   std::size_t CountParameters() const;
 

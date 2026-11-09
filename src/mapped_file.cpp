@@ -78,6 +78,19 @@ MappedFile& MappedFile::operator=(MappedFile&& other) noexcept {
 
 MappedFile::~MappedFile() { Unmap(); }
 
+void MappedFile::Release(std::span<const std::byte> part) const {
+  if (data_ == nullptr || part.empty()) return;
+  // Whole pages only: round the start up and the end down.
+  const auto page = static_cast<std::uintptr_t>(::sysconf(_SC_PAGESIZE));
+  auto begin = reinterpret_cast<std::uintptr_t>(part.data());
+  auto end = begin + part.size();
+  begin = (begin + page - 1) / page * page;
+  end = end / page * page;
+  if (end > begin) {
+    ::madvise(reinterpret_cast<void*>(begin), end - begin, MADV_DONTNEED);
+  }
+}
+
 void MappedFile::Unmap() {
   if (data_ != nullptr) ::munmap(const_cast<std::byte*>(data_), size_);
   data_ = nullptr;
