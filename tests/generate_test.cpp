@@ -92,7 +92,7 @@ TEST(Generate, StopsAtTheStopTokenAndReportsIt) {
   options.max_new_tokens = 10;
   const std::vector<std::int32_t> prompt{1, 4, 9};
   const std::vector<std::int32_t> greedy = SlowGreedy(*loaded.model, prompt, 10);
-  options.stop_token = greedy[3];
+  options.stop_tokens = {100, greedy[3]};  // 100 is outside the vocab, so never comes out
   const auto result = ember::Generate(*loaded.model, prompt, options);
   ASSERT_TRUE(result.ok());
   EXPECT_EQ(result->stop, GenerateResult::Stop::kStopToken);

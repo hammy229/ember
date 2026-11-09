@@ -68,7 +68,8 @@ StatusOr<std::optional<GeneratedToken>> Generator::Next() {
   EMBER_ASSIGN_OR_RETURN(token.id, sampler_.Sample(row));
   ++generated_;
   pending_.assign(1, token.id);
-  if (options_.stop_token >= 0 && token.id == options_.stop_token) {
+  if (std::find(options_.stop_tokens.begin(), options_.stop_tokens.end(), token.id) !=
+      options_.stop_tokens.end()) {
     done_ = true;
     stop_ = GenerateResult::Stop::kStopToken;
   }

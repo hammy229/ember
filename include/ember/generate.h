@@ -19,8 +19,9 @@ namespace ember {
 struct GenerateOptions {
   std::size_t max_new_tokens = 64;
   SamplingOptions sampling;
-  // Stop when this token comes out (it is still reported). Negative never stops.
-  std::int32_t stop_token = -1;
+  // Stop when any of these tokens comes out (it is still reported). Small models trained on
+  // stories often end one with <s>, the begin-of-sequence token, rather than with </s>.
+  std::vector<std::int32_t> stop_tokens;
 };
 
 struct GeneratedToken {

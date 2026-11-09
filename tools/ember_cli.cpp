@@ -166,7 +166,7 @@ int RunGenerate(int argc, char** argv) {
     return 1;
   }
   const std::vector<std::int32_t> prompt_ids = tokenizer->Encode(prompt, true);
-  options.stop_token = tokenizer->eos_id();
+  options.stop_tokens = {tokenizer->eos_id(), tokenizer->bos_id()};
 
   // Decoding the prompt and the new tokens together keeps the space before the first new word.
   // Only text that is settled gets printed: a run of byte pieces still waiting for the rest of its
@@ -176,7 +176,7 @@ int RunGenerate(int argc, char** argv) {
   std::size_t printed = prompt_text.size();
   std::cout << prompt_text << std::flush;
   const auto on_token = [&](const ember::GeneratedToken& token, std::size_t) {
-    if (token.id == tokenizer->eos_id()) return true;
+    if (token.id == tokenizer->eos_id() || token.id == tokenizer->bos_id()) return true;
     text_ids.push_back(token.id);
     const auto text = tokenizer->Decode(text_ids);
     if (!text.ok() || text->size() < printed) return true;
