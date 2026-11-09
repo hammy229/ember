@@ -51,6 +51,9 @@ jobs:
       - run: cmake --preset ${{ matrix.preset }}
       - run: cmake --build --preset ${{ matrix.preset }}
       - run: ctest --preset ${{ matrix.preset }}
+      # ctest hides output from passing tests. This puts each platform's measured margin in the log.
+      - name: Show the difference from Hugging Face
+        run: ./build/${{ matrix.preset }}/ember_tests --gtest_filter='HfReferenceTest.*' | grep -E "largest|PASSED"
 
   # Apple clang and ARM, next to GCC on x86 above. Free now that the repo is public.
   macos:
@@ -76,6 +79,9 @@ jobs:
       - run: cmake --preset release
       - run: cmake --build --preset release
       - run: ctest --preset release
+      # ctest hides output from passing tests. This puts each platform's measured margin in the log.
+      - name: Show the difference from Hugging Face
+        run: ./build/release/ember_tests --gtest_filter='HfReferenceTest.*' | grep -E "largest|PASSED"
 
   fuzz:
     runs-on: ubuntu-latest
