@@ -38,11 +38,11 @@
  "machine": "macOS-27.2-arm64-arm-64bit-Mach-O",
  "threads": 6,
  "f32": {
-  "tokens_per_second": 16.9,
-  "peak_memory_mb": 3423
+  "tokens_per_second": 26.2,
+  "peak_memory_mb": 3545
  },
  "q8": {
-  "tokens_per_second": 55.2,
+  "tokens_per_second": 58.9,
   "peak_memory_mb": 2377
  }
 }
