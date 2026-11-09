@@ -2,7 +2,7 @@
 
 Ember is an LLM inference engine written from scratch in C++20, with no ML framework. It runs natively and in the browser through WebAssembly.
 
-**Fri, Nov 13 is publish day: the site goes live and the resume gets updated.** The repo went public early, on Nov 8. Everything after Nov 13 ships as updates to the live site.
+**Fri, Nov 13 is publish day: the site goes live and the resume gets updated.** The repo went public early, on Nov 8. The goal is every feature working and tested by the end of Nov 12. Anything that is not goes out later as an update, never half-done in the post.
 
 ## Timeline
 
@@ -14,17 +14,12 @@ Ember is an LLM inference engine written from scratch in C++20, with no ML frame
 | Sat, Nov 7 | Load model weights with memory mapping (15M parameter tiny model), fuzz the loader against corrupt files | Done |
 | Sun, Nov 8 | Attention and the full forward pass | Done |
 | Mon, Nov 9 | **Milestone 1: logits match Hugging Face**, checked in CI from a saved reference | Done |
-| Tue, Nov 10 | Tokenizer, sampling, KV cache, text generation, per-token uncertainty (entropy and top-2 margin) from the sampler | |
-| Wed, Nov 11 | **Milestone 2: text generation in the browser**, site deployed privately, benchmark page | |
-| Thu, Nov 12 | Light day, MedData is due at 2pm CST. Code and security reviews, demo video | |
-| Fri, Nov 13 | **Publish day:** site live, resume update, launch post | |
-| Sat, Nov 14 | Run Qwen3 0.6B on the Mac, NEON SIMD with before-and-after benchmarks, same model against llama.cpp | |
-| Sun, Nov 15 | Multithreading, 8-bit quantization, quantization quality report | |
-| Mon, Nov 16 | `ember route` with Qwen3 0.6B and the routing eval, run overnight | |
-| Tue, Nov 17 | Autograd and optimizer, with gradients checked numerically; post the routing result | |
-| Wed, Nov 18 | Train a tiny character-level transformer natively, routing view (tokens colored by confidence) | |
-| Thu, Nov 19 | **Milestone 3: training runs live in the browser**, attention maps and logit lens, architecture page | |
-| Fri, Nov 20 | Final benchmarks, reviews, second launch post | |
+| Mon, Nov 9 (night) | Tokenizer, sampling, KV cache, text generation, per-token uncertainty (entropy and top-2 margin) | |
+| Tue, Nov 10 | **Milestone 2: text generation in the browser**, private deploy; Qwen3 0.6B on the Mac, NEON SIMD with before-and-after benchmarks | |
+| Wed, Nov 11 | Same model against llama.cpp, multithreading, 8-bit quantization and quality report; `ember route` and the routing eval, run overnight | |
+| Thu, Nov 12 | MedData due 2pm CST. Autograd with gradients checked, native and in-browser training, attention maps and logit lens, routing view, final benchmarks, reviews, demo video | |
+| Fri, Nov 13 | **Publish day:** site live, resume update, launch post with the routing result | |
+| Nov 14 to 20 | Fixes, and anything that missed Thursday ships as an update | |
 
 ## Scope
 
@@ -32,9 +27,9 @@ Out of scope for this window: CUDA backend, continuous batching, runtime LoRA lo
 
 **Quantization quality report:** a script anyone can rerun that compares the quantized model to the full model on logit error, KL divergence, and top-1 agreement, next to speed and memory.
 
-**Confidence-gated routing:** local-first routers send each request to the user's own hardware first and escalate to the cloud only when needed, but the hard part is knowing when local is not good enough. An engine that owns its logits can tell from inside: `ember route` tracks per-token entropy and top-2 margin while generating and escalates as soon as the model gets unsure. The eval is a script anyone can rerun on a public benchmark (GSM8K): accuracy against the share of requests kept local, next to random and prompt-length routers at the same share. Escalated questions are scored with the benchmark's answer key, so no paid API is needed, and the write-up says so. The result gets published even if entropy turns out to be a weak signal. It needs a real model, so it waits for Qwen3 0.6B on Nov 14.
+**Confidence-gated routing:** local-first routers send each request to the user's own hardware first and escalate to the cloud only when needed, but the hard part is knowing when local is not good enough. An engine that owns its logits can tell from inside: `ember route` tracks per-token entropy and top-2 margin while generating and escalates as soon as the model gets unsure. The eval is a script anyone can rerun on a public benchmark (GSM8K): accuracy against the share of requests kept local, next to random and prompt-length routers at the same share. Escalated questions are scored with the benchmark's answer key, so no paid API is needed, and the write-up says so. The result gets published even if entropy turns out to be a weak signal. It needs a real model, so it waits for Qwen3 0.6B on Nov 10.
 
-**Training:** starts Nov 17 only if publish day went out on time. Otherwise the days go to catching up first.
+**Training:** starts only once Milestone 2 and the router work. Otherwise that time goes to them first.
 
 Stretch goals, only if ahead of schedule: 4-bit quantization and Qwen3-8B on the Mac.
 
