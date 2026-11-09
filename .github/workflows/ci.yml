@@ -28,7 +28,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [release, sanitize]
+        # tsan runs the threaded code under ThreadSanitizer.
+        preset: [release, sanitize, tsan]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Milestone 1: tests/hf_reference_test.cpp checks the logits against Hugging Face's, and fails
