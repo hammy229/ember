@@ -6,10 +6,12 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <vector>
 
 #include "tiny_llama.h"
@@ -245,6 +247,120 @@ TEST(Forward, RefusesSequencesItCannotRun) {
   EXPECT_TRUE(ember::Forward(*loaded.model, std::vector<std::int32_t>(16, 1), arena).ok());
   EXPECT_FALSE(ember::Forward(*loaded.model, std::vector<std::int32_t>{1, 11}, arena).ok());
   EXPECT_FALSE(ember::Forward(*loaded.model, std::vector<std::int32_t>{-1}, arena).ok());
+}
+
+// Feeds `tokens` through ForwardCached in pieces of the given sizes and checks every row against
+// Forward on the whole sequence.
+void ExpectCachedMatchesForward(const TinyLlamaOptions& options,
+                                const std::vector<std::int32_t>& tokens,
+                                const std::vector<std::size_t>& pieces) {
+  const Loaded loaded = Load(options);
+  ASSERT_NE(loaded.model, nullptr);
+  Arena arena;
+  const auto full = ember::Forward(*loaded.model, tokens, arena);
+  ASSERT_TRUE(full.ok()) << full.status().ToString();
+  auto cache = ember::KvCache::Make(loaded.model->config(), tokens.size());
+  ASSERT_TRUE(cache.ok()) << cache.status().ToString();
+  std::size_t start = 0;
+  double worst = 0;
+  for (const std::size_t piece : pieces) {
+    Arena scratch;
+    const std::span<const std::int32_t> part(tokens.data() + start, piece);
+    const auto logits = ember::ForwardCached(*loaded.model, part, **cache, scratch, false);
+    ASSERT_TRUE(logits.ok()) << logits.status().ToString();
+    ASSERT_EQ(logits->dim(0), piece);
+    for (std::size_t t = 0; t < piece; ++t) {
+      for (std::size_t i = 0; i < options.vocab; ++i) {
+        worst = std::max(worst, std::abs(static_cast<double>(logits->at<float>(t, i)) -
+                                         full->at<float>(start + t, i)));
+      }
+    }
+    start += piece;
+    EXPECT_EQ((*cache)->size(), start);
+  }
+  ASSERT_EQ(start, tokens.size());
+  EXPECT_LT(worst, 1e-5) << "largest difference between cached and uncached logits";
+}
+
+TEST(ForwardCached, OneTokenAtATimeMatchesForward) {
+  ExpectCachedMatchesForward({}, {1, 5, 3, 10, 0, 7, 2, 2}, {1, 1, 1, 1, 1, 1, 1, 1});
+}
+
+TEST(ForwardCached, APromptThenSingleTokensMatchesForward) {
+  TinyLlamaOptions options;
+  options.hidden = 16;
+  options.heads = 4;
+  options.kv_heads = 2;
+  options.layers = 3;
+  options.seed = 9;
+  ExpectCachedMatchesForward(options, {2, 2, 9, 4, 1, 0, 6, 3, 8, 5}, {5, 1, 1, 3});
+}
+
+TEST(ForwardCached, FillsTheWholeContext) {
+  std::vector<std::int32_t> tokens(16);
+  for (std::size_t i = 0; i < tokens.size(); ++i) tokens[i] = static_cast<std::int32_t>(i % 11);
+  ExpectCachedMatchesForward({}, tokens, {7, 1, 1, 1, 6});
+}
+
+TEST(ForwardCached, LastOnlyGivesTheLastRow) {
+  const Loaded loaded = Load({});
+  Arena arena;
+  const std::vector<std::int32_t> tokens{4, 1, 7};
+  const auto full = ember::Forward(*loaded.model, tokens, arena);
+  ASSERT_TRUE(full.ok());
+  auto cache = ember::KvCache::Make(loaded.model->config(), 8);
+  ASSERT_TRUE(cache.ok());
+  const auto last = ember::ForwardCached(*loaded.model, tokens, **cache, arena, true);
+  ASSERT_TRUE(last.ok()) << last.status().ToString();
+  ASSERT_EQ(last->dim(0), 1U);
+  for (std::size_t i = 0; i < 11; ++i)
+    EXPECT_NEAR(last->at<float>(0, i), full->at<float>(2, i), 1e-5);
+}
+
+TEST(ForwardCached, TruncateRewindsToAPrefix) {
+  const Loaded loaded = Load({});
+  auto cache = ember::KvCache::Make(loaded.model->config(), 8);
+  ASSERT_TRUE(cache.ok());
+  Arena arena;
+  const std::vector<std::int32_t> prompt{3, 3, 8};
+  ASSERT_TRUE(ember::ForwardCached(*loaded.model, prompt, **cache, arena, true).ok());
+  const auto first =
+      ember::ForwardCached(*loaded.model, std::vector<std::int32_t>{5}, **cache, arena, true);
+  ASSERT_TRUE(first.ok());
+  (*cache)->Truncate(3);
+  const auto again =
+      ember::ForwardCached(*loaded.model, std::vector<std::int32_t>{5}, **cache, arena, true);
+  ASSERT_TRUE(again.ok());
+  for (std::size_t i = 0; i < 11; ++i) EXPECT_EQ(first->at<float>(0, i), again->at<float>(0, i));
+}
+
+TEST(ForwardCached, RefusesWhatItCannotRunAndKeepsTheCache) {
+  const Loaded loaded = Load({});
+  Arena arena;
+  EXPECT_FALSE(ember::KvCache::Make(loaded.model->config(), 0).ok());
+  EXPECT_FALSE(ember::KvCache::Make(loaded.model->config(), 17).ok());
+  auto cache = ember::KvCache::Make(loaded.model->config(), 4);
+  ASSERT_TRUE(cache.ok());
+  EXPECT_EQ((*cache)->bytes(), 2U * 2U * 4U * 8U * sizeof(float));
+  ASSERT_TRUE(
+      ember::ForwardCached(*loaded.model, std::vector<std::int32_t>{1, 2, 3}, **cache, arena, false)
+          .ok());
+  EXPECT_FALSE(
+      ember::ForwardCached(*loaded.model, std::vector<std::int32_t>{1, 2}, **cache, arena, false)
+          .ok());
+  EXPECT_FALSE(
+      ember::ForwardCached(*loaded.model, std::vector<std::int32_t>{}, **cache, arena, false).ok());
+  EXPECT_FALSE(
+      ember::ForwardCached(*loaded.model, std::vector<std::int32_t>{11}, **cache, arena, false)
+          .ok());
+  EXPECT_EQ((*cache)->size(), 3U);
+
+  TinyLlamaOptions other;
+  other.layers = 3;
+  const Loaded different = Load(other);
+  EXPECT_FALSE(
+      ember::ForwardCached(*different.model, std::vector<std::int32_t>{1}, **cache, arena, false)
+          .ok());
 }
 
 }  // namespace
