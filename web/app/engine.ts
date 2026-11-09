@@ -34,6 +34,11 @@ type EmberModule = {
   _ember_generated_text(): number;
   _ember_last_token(): number;
   _ember_last_error(): number;
+  _ember_train_start(text: number, bytes: number, seed: number): number;
+  _ember_train_steps(steps: number): number;
+  _ember_train_held_out_loss(): number;
+  _ember_train_vocab(): number;
+  _ember_train_sample(count: number, temperature: number, seed: number): number;
 };
 
 /** One token the engine picked, and how sure the model was when it picked it. */
@@ -73,6 +78,13 @@ export type Engine = {
   startGeneration(prompt: string, settings: GenerationSettings): string;
   /** Picks the next token. Throws with the engine's own error message. */
   step(): Step;
+  /** Starts training a new model from random weights. Gives its parameter count. */
+  startTraining(text: string, seed: number): { parameters: number; vocab: number };
+  /** Runs optimizer steps and gives their mean training loss. */
+  trainSteps(steps: number): number;
+  /** Loss on text the model never trains on. */
+  heldOutLoss(): number;
+  sample(count: number, temperature: number, seed: number): string;
 };
 
 const ENGINE_URL = "/wasm/ember.js";
@@ -161,6 +173,27 @@ function wrap(module: EmberModule): Engine {
         text: module.UTF8ToString(module._ember_generated_text()),
         token: { id, entropy, margin, topProbability, start: offset },
       };
+    },
+    startTraining(text, seed) {
+      const bytes = module.lengthBytesUTF8(text) + 1;
+      const pointer = module._malloc(bytes);
+      try {
+        module.stringToUTF8(text, pointer, bytes);
+        const parameters = module._ember_train_start(pointer, bytes - 1, seed);
+        if (parameters < 0) throw new Error(module.UTF8ToString(module._ember_last_error()));
+        return { parameters, vocab: module._ember_train_vocab() };
+      } finally {
+        module._free(pointer);
+      }
+    },
+    trainSteps(steps) {
+      return module._ember_train_steps(steps);
+    },
+    heldOutLoss() {
+      return module._ember_train_held_out_loss();
+    },
+    sample(count, temperature, seed) {
+      return module.UTF8ToString(module._ember_train_sample(count, temperature, seed));
     },
   };
 }

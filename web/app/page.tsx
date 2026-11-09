@@ -3,6 +3,7 @@ import { LiveChecks } from "./LiveChecks";
 import { Rail } from "./Rail";
 import { SoftmaxLab } from "./SoftmaxLab";
 import { SpeedRun } from "./SpeedRun";
+import { TrainLive } from "./TrainLive";
 import { WriteLive } from "./WriteLive";
 
 // From docs/benchmarks/2026-11-06-m4.txt, made by scripts/bench.sh. Fastest of 10 runs at 1024 x 1024.
@@ -97,6 +98,18 @@ export default function Home() {
             </p>
           </div>
           <WriteLive />
+        </section>
+
+        <section className="band split" id="train">
+          <div className="band-head">
+            <h2>Train one from scratch, here.</h2>
+            <p>
+              Ember also learns. Its own autograd computes every gradient, checked against finite
+              differences in its tests, and AdamW updates the weights. Press train and a small
+              transformer goes from random noise to something shaped like Shakespeare.
+            </p>
+          </div>
+          <TrainLive />
         </section>
 
         <section className="band split" id="softmax">

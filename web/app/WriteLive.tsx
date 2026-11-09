@@ -95,6 +95,7 @@ export function WriteLive() {
   const [temperature, setTemperature] = useState(0.8);
   const [written, setWritten] = useState<Written | null>(null);
   const [speed, setSpeed] = useState<number | null>(null);
+  const [threshold, setThreshold] = useState(2.5);
   const stopRef = useRef(false);
 
   useEffect(() => {
@@ -179,6 +180,9 @@ export function WriteLive() {
   }, [engine, prompt, temperature]);
 
   const split = written ? pieces(written) : null;
+  // The router in src/route.cpp with its "max entropy" signal: hand off at the first token whose
+  // entropy reaches the threshold.
+  const handoff = written ? written.tokens.findIndex((t) => t.entropy >= threshold) : -1;
   const unsure = written ? written.tokens.filter((t) => shade(t.entropy) === 3).length : 0;
   const writing = phase.kind === "writing";
 
@@ -255,12 +259,18 @@ export function WriteLive() {
             {split.tokens.map((piece, i) => {
               const t = written.tokens[i];
               return (
-                <span
-                  key={i}
-                  className={`tok tok-${shade(t.entropy)}`}
-                  title={`entropy ${t.entropy.toFixed(2)} nats, margin ${t.margin.toFixed(2)}`}
-                >
-                  {piece}
+                <span key={i}>
+                  {i === handoff ? (
+                    <span className="handoff" title="A router with this threshold hands off here">
+                      hand off
+                    </span>
+                  ) : null}
+                  <span
+                    className={`tok tok-${shade(t.entropy)}`}
+                    title={`entropy ${t.entropy.toFixed(2)} nats, margin ${t.margin.toFixed(2)}`}
+                  >
+                    {piece}
+                  </span>
                 </span>
               );
             })}
@@ -278,6 +288,23 @@ export function WriteLive() {
               <i className="tok tok-3" /> unsure
             </span>
           </div>
+          <label className="lab-temperature write-threshold">
+            <span>Hand off at entropy</span>
+            <input
+              type="range"
+              min={0.5}
+              max={5}
+              step={0.05}
+              value={threshold}
+              onChange={(event) => setThreshold(Number(event.target.value))}
+            />
+            <span className="lab-temperature-value">{threshold.toFixed(2)}</span>
+          </label>
+          <p className="lab-note">
+            {handoff < 0
+              ? `No token reached ${threshold.toFixed(2)} nats, so a router with this threshold keeps the whole answer local.`
+              : `A local-first router with this threshold would stop at token ${handoff + 1} of ${written.tokens.length} and hand the request to a bigger model, having spent only those tokens locally.`}
+          </p>
           {!writing && written.tokens.length > 0 ? (
             <p className="lab-note">
               {unsure === 0

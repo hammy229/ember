@@ -730,6 +730,91 @@ input[type="range"]:active::-moz-range-thumb {
   }
 }
 
+.handoff {
+  display: inline-block;
+  margin: 0 4px;
+  padding: 0 6px;
+  border-radius: 2px;
+  background: var(--slate);
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  vertical-align: 0.15em;
+}
+
+.write-threshold {
+  margin-top: 20px;
+}
+
+/* Train live */
+.train-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 28px;
+  background: var(--paper-deep);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+}
+
+.train-grid {
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+
+.train-guess {
+  stroke: var(--rule-strong);
+  stroke-dasharray: 4 4;
+}
+
+.train-tick {
+  fill: var(--graphite);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.train-line {
+  fill: none;
+  stroke: var(--ember);
+  stroke-width: 2;
+}
+
+.train-line.is-held {
+  stroke: var(--slate);
+}
+
+.train-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.train-key {
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  background: var(--ember);
+}
+
+.train-key.is-held {
+  background: var(--slate);
+}
+
+.train-sample {
+  margin-top: 20px;
+  min-height: 9em;
+  padding: 20px 22px;
+  background: var(--paper-deep);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Bars */
 .bars {
   margin-top: clamp(40px, 5vw, 72px);
