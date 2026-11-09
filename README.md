@@ -5,7 +5,7 @@
 [![CI](https://github.com/hammy229/ember/actions/workflows/ci.yml/badge.svg)](https://github.com/hammy229/ember/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Links:** [Results](docs/results/2026-11-08-apple-m4.md) · [How loading works](docs/loader.md) · [How the forward pass works](docs/forward.md) · [Plan](docs/PLAN.md) · [Arham Doshi](https://arhamdoshi.dev) · [LinkedIn](https://linkedin.com/in/arhamdoshi)
+**Links:** [Results](docs/results/2026-11-09-apple-m4.md) · [How loading works](docs/loader.md) · [How the forward pass works](docs/forward.md) · [Plan](docs/PLAN.md) · [Arham Doshi](https://arhamdoshi.dev) · [LinkedIn](https://linkedin.com/in/arhamdoshi)
 
 ![Ember's site: a triangular grid of coals from pale ash to deep ember, each one an attention weight the engine is computing live in the browser](docs/screenshots/home.png)
 
@@ -13,16 +13,17 @@ The grid is not an animation. The browser is running queries and keys through th
 
 ## Results
 
-Every number here comes from one run of [`scripts/results.sh`](scripts/results.sh), saved in [docs/results/2026-11-08-apple-m4.md](docs/results/2026-11-08-apple-m4.md) with the commit, compiler, and machine. Rerun it and you get your own copy.
+Every number here comes from one run of [`scripts/results.sh`](scripts/results.sh), saved in [docs/results/2026-11-09-apple-m4.md](docs/results/2026-11-09-apple-m4.md) with the commit, compiler, and machine. The SIMD row is from the [Nov 8 run](docs/results/2026-11-08-apple-m4.md), which timed the older commit too. Rerun it and you get your own copy.
 
 | Claim | Measured | How it is checked |
 |---|---|---|
-| The math is right | Largest logit difference 4.2e-5 from a separate NumPy Llama, across all 32,000 logits, with the same top token at all 156 positions tested | `scripts/reference_logits.py` on three inputs from 5 to 128 tokens |
-| It runs a real model | 15,191,712 parameters, 815 tokens a second on one thread, 147 MB of memory for the whole process | `ember_bench_model` on the TinyStories Llama |
+| It matches Hugging Face | Largest logit difference 3.0e-5 from `transformers`' own logits, with the same top token at all 156 positions tested | `tests/hf_reference_test.cpp` against logits saved by `scripts/hf_reference.py`, run in CI on Linux, under sanitizers, and on macOS |
+| Every logit is right | Largest difference 4.2e-5 from a separate NumPy Llama, across all 32,000 logits at the same 156 positions | `scripts/reference_logits.py` on three inputs from 5 to 128 tokens |
+| It runs a real model | 15,191,712 parameters, 814 tokens a second on one thread, 147 MB of memory for the whole process | `ember_bench_model` on the TinyStories Llama |
 | Speed work is measured, not guessed | Spelling out the SIMD registers in `Linear` took one token from 1.98 ms to 1.23 ms (1.6x) with logits identical to the bit | `results.sh --before 08c2e73` builds the old commit and times both |
-| It is honest about where it stands | NumPy with Apple's hand-tuned BLAS runs 128 tokens in 21.0 ms. Ember takes 158.1 ms, 7.5x slower | Same script, same machine, same tokens |
+| It is honest about where it stands | NumPy with Apple's hand-tuned BLAS runs 128 tokens in 21.0 ms. Ember takes 158.4 ms, 7.5x slower | Same script, same machine, same tokens |
 | Bad input cannot crash it | Every truncation and thousands of corrupted headers fail cleanly under AddressSanitizer, and libFuzzer runs on every push | `tests/loader_corruption_test.cpp`, `fuzz/`, CI |
-| The tests reach the code | 326 tests, covering 97.8% of lines and 86.0% of branches in `src/` | `scripts/coverage.sh` |
+| The tests reach the code | 328 tests, covering 97.8% of lines and 86.0% of branches in `src/` | `scripts/coverage.sh` |
 
 ![Model section of the site: logits within 4.2e-5 of a separate Llama, 815 tokens a second, and a bar chart where NumPy runs 128 tokens in 21 ms against Ember's 158 ms](docs/screenshots/model.png)
 
@@ -102,7 +103,7 @@ cmake --preset sanitize && cmake --build --preset sanitize && ctest --preset san
 ./scripts/results.sh        # every number in this README, saved with the machine and commit
 ```
 
-CI runs on every push: a clang-format check, release and AddressSanitizer plus UBSan builds with GCC, a release build with Apple clang on macOS, a minute of fuzzing per target, the WebAssembly build with its smoke test, and the site build. The forward pass is checked against a separate double-precision implementation, and breaking RoPE, the attention scale, or the causal mask on purpose makes those tests fail.
+CI runs on every push: a clang-format check, release and AddressSanitizer plus UBSan builds with GCC, a release build with Apple clang on macOS, a minute of fuzzing per target, the WebAssembly build with its smoke test, and the site build. The forward pass is checked against a separate double-precision implementation, and breaking RoPE, the attention scale, or the causal mask on purpose makes those tests fail. The Linux, sanitizer, and macOS jobs also download the real model and check its logits against the ones Hugging Face's `transformers` produced, and fail rather than skip if the download is missing.
 
 ![Benchmark section: MatMul at 65 ms against 828 ms for textbook loops at 1024 x 1024, then a table timing the engine in the visitor's browser](docs/screenshots/speed.png)
 
