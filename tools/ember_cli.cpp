@@ -39,9 +39,11 @@ int Usage() {
          "         --seed S     random seed (default 0)\n"
          "         --stats      show each token's entropy and top-2 margin afterwards\n"
          "         --threads N  threads for the math (default 1)\n"
+         "         --q8         store the matrices in 8 bits (smaller and faster)\n"
          "         --chat       wrap the prompt as one user turn in the model's chat format\n"
          "                      (Qwen3, with thinking turned off)\n"
-         "       ember batch MODEL_DIR IN.jsonl OUT.jsonl [--tokens N] [--threads N] [--chat]\n"
+         "       ember batch MODEL_DIR IN.jsonl OUT.jsonl [--tokens N] [--threads N] [--chat] "
+         "[--q8]\n"
          "                                answer each {\"id\", \"prompt\"} line greedily, writing\n"
          "                                the text and every token's entropy and margin\n";
   return 2;
@@ -181,6 +183,7 @@ int RunBatch(int argc, char** argv) {
   ember::GenerateOptions options;
   options.max_new_tokens = 256;
   bool chat = false;
+  ember::LoadOptions load;
   for (int i = 5; i < argc; ++i) {
     const std::string_view arg = argv[i];
     bool ok = true;
@@ -192,12 +195,14 @@ int RunBatch(int argc, char** argv) {
       if (ok) ember::SetThreadCount(threads);
     } else if (arg == "--chat") {
       chat = true;
+    } else if (arg == "--q8") {
+      load.q8 = true;
     } else {
       ok = false;
     }
     if (!ok) return Usage();
   }
-  const auto model = ember::LlamaModel::Load(directory);
+  const auto model = ember::LlamaModel::Load(directory, load);
   if (!model.ok()) {
     std::cerr << "error: " << model.status().ToString() << '\n';
     return 1;
@@ -272,6 +277,7 @@ int RunGenerate(int argc, char** argv) {
   options.max_new_tokens = 128;
   bool show_stats = false;
   bool chat = false;
+  ember::LoadOptions load;
   std::string prompt;
   for (int i = 3; i < argc; ++i) {
     const std::string_view arg = argv[i];
@@ -291,6 +297,8 @@ int RunGenerate(int argc, char** argv) {
       show_stats = true;
     } else if (arg == "--chat") {
       chat = true;
+    } else if (arg == "--q8") {
+      load.q8 = true;
     } else if (arg == "--threads" && has_value) {
       std::size_t threads = 0;
       ok = ParseNumber(argv[++i], threads) && threads >= 1 && threads <= 256;
@@ -304,7 +312,7 @@ int RunGenerate(int argc, char** argv) {
   }
   if (prompt.empty()) return Usage();
 
-  const auto model = ember::LlamaModel::Load(directory);
+  const auto model = ember::LlamaModel::Load(directory, load);
   if (!model.ok()) {
     std::cerr << "error: " << model.status().ToString() << '\n';
     return 1;
