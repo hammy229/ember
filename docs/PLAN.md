@@ -14,7 +14,7 @@ Ember is an LLM inference engine written from scratch in C++20, with no ML frame
 | Sat, Nov 7 | Load model weights with memory mapping (15M parameter tiny model), fuzz the loader against corrupt files | Done |
 | Sun, Nov 8 | Attention and the full forward pass | Done |
 | Mon, Nov 9 | **Milestone 1: logits match Hugging Face**, checked in CI from a saved reference | Done |
-| Mon, Nov 9 (night) | Tokenizer, sampling, KV cache, text generation, per-token uncertainty (entropy and top-2 margin) | |
+| Mon, Nov 9 (night) | Tokenizer, sampling, KV cache, text generation, per-token uncertainty (entropy and top-2 margin) || Done |
 | Tue, Nov 10 | **Milestone 2: text generation in the browser**, private deploy; Qwen3 0.6B on the Mac, NEON SIMD with before-and-after benchmarks | |
 | Wed, Nov 11 | Same model against llama.cpp, multithreading, 8-bit quantization and quality report; `ember route` and the routing eval, run overnight | |
 | Thu, Nov 12 | MedData due 2pm CST. Autograd with gradients checked, native and in-browser training, attention maps and logit lens, routing view, final benchmarks, reviews, demo video | |
