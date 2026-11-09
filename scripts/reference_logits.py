@@ -7,7 +7,9 @@ float32 NumPy, and prints the largest difference. It reads safetensors by hand, 
 NumPy, not PyTorch.
 
 This is a cross-check between two implementations written by the same project. The independent
-check against Hugging Face itself is Milestone 1 (docs/PLAN.md, Nov 9).
+check against Hugging Face's own transformers is scripts/hf_reference.py, which saves its logits,
+and tests/hf_reference_test.cpp, which CI runs against them. That one keeps a sample of each row,
+while this one compares every logit, so each covers the other's blind spot.
 
 With --time, it also times its own forward pass, as a baseline for Ember's speed. NumPy hands
 matrix products to the system's BLAS library, which is tuned by hand and may use several threads,
