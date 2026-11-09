@@ -8,6 +8,10 @@
 #include <string>
 #include <vector>
 
+#if defined(__ARM_FEATURE_DOTPROD)
+#include <arm_neon.h>
+#endif
+
 #include "ember/f16.h"
 #include "ember/threads.h"
 
@@ -15,36 +19,17 @@ namespace ember {
 
 namespace {
 
-using Float4 = float __attribute__((vector_size(16)));
-using Char4 = std::int8_t __attribute__((vector_size(4)));
-
-Float4 Load4(const float* from) {
-  Float4 value;
-  std::memcpy(&value, from, sizeof(value));
-  return value;
-}
-
-Float4 Widen4(const std::int8_t* from) {
-  Char4 value;
-  std::memcpy(&value, from, sizeof(value));
-  return __builtin_convertvector(value, Float4);
-}
-
-// One block of 32: x times the int8 values, before the block's scale.
-float Block(const float* x, const std::int8_t* w) {
-  Float4 a{};
-  Float4 b{};
-  for (std::size_t k = 0; k < Q8Matrix::kBlock; k += 8) {
-    a += Load4(x + k) * Widen4(w + k);
-    b += Load4(x + k + 4) * Widen4(w + k + 4);
+#if !defined(__ARM_FEATURE_DOTPROD)
+// One block of 32: the exact integer dot product of two rows of int8 values, as a plain loop the
+// compiler can vectorize. ARM chips with the dot product extension use vdotq_s32 in Row instead.
+std::int32_t Dot32(const std::int8_t* a, const std::int8_t* b) {
+  std::int32_t total = 0;
+  for (std::size_t k = 0; k < Q8Matrix::kBlock; ++k) {
+    total += static_cast<std::int32_t>(a[k]) * static_cast<std::int32_t>(b[k]);
   }
-  const Float4 s = a + b;
-  return (s[0] + s[1]) + (s[2] + s[3]);
+  return total;
 }
-
-}  // namespace
-
-namespace {
+#endif
 
 // Quantizes one row of `cols` floats into values and scales.
 Status QuantizeRow(const float* from, std::size_t cols, std::int8_t* values, float* scales) {
@@ -82,6 +67,31 @@ StatusOr<Q8Matrix> Allocate(std::size_t rows, std::size_t cols, Arena& arena) {
   q.values = reinterpret_cast<std::int8_t*>(values);
   q.scales = reinterpret_cast<float*>(scales);
   return q;
+}
+
+// One output: the sum over blocks of each block's integer dot product times its two scales. With
+// the dot product extension, the per-block sums stay in vector registers and only the final total
+// is added across lanes, rather than once per block.
+float Row(const std::int8_t* x, const float* sx, const std::int8_t* w, const float* sw,
+          std::size_t blocks) {
+#if defined(__ARM_FEATURE_DOTPROD)
+  float32x4_t total = vdupq_n_f32(0);
+  for (std::size_t b = 0; b < blocks; ++b) {
+    const std::int8_t* const xb = x + b * Q8Matrix::kBlock;
+    const std::int8_t* const wb = w + b * Q8Matrix::kBlock;
+    int32x4_t dot = vdotq_s32(vdupq_n_s32(0), vld1q_s8(xb), vld1q_s8(wb));
+    dot = vdotq_s32(dot, vld1q_s8(xb + 16), vld1q_s8(wb + 16));
+    total = vmlaq_n_f32(total, vcvtq_f32_s32(dot), sw[b] * sx[b]);
+  }
+  return vaddvq_f32(total);
+#else
+  float total = 0;
+  for (std::size_t b = 0; b < blocks; ++b) {
+    total += static_cast<float>(Dot32(x + b * Q8Matrix::kBlock, w + b * Q8Matrix::kBlock)) *
+             (sw[b] * sx[b]);
+  }
+  return total;
+#endif
 }
 
 }  // namespace
@@ -142,19 +152,24 @@ Status LinearQ8(const TensorView& x, const Q8Matrix& weight, const Tensor& out) 
   const std::size_t in = weight.cols;
   const std::size_t features = weight.rows;
   const std::size_t blocks = in / Q8Matrix::kBlock;
-  const float* const xs = x.data<float>();
+  // The inputs are quantized the same way as the weights, once per call, so every block is an
+  // integer dot product times two scales. llama.cpp does the same for its 8-bit format. The integer
+  // sums are exact, so the answer is still the same for any number of threads.
+  std::vector<std::int8_t> xq(rows * in);
+  std::vector<float> xscale(rows * blocks);
+  for (std::size_t r = 0; r < rows; ++r) {
+    EMBER_RETURN_IF_ERROR(
+        QuantizeRow(x.data<float>() + r * in, in, xq.data() + r * in, xscale.data() + r * blocks));
+  }
   float* const to = out.data<float>();
   ParallelFor(features, 64, [&](std::size_t begin, std::size_t end) {
     for (std::size_t r = 0; r < rows; ++r) {
-      const float* const row = xs + r * in;
+      const std::int8_t* const xr = xq.data() + r * in;
+      const float* const sx = xscale.data() + r * blocks;
       for (std::size_t f = begin; f < end; ++f) {
         const std::int8_t* const w = weight.values + f * in;
-        const float* const scale = weight.scales + f * blocks;
-        float total = 0;
-        for (std::size_t b = 0; b < blocks; ++b) {
-          total += scale[b] * Block(row + b * Q8Matrix::kBlock, w + b * Q8Matrix::kBlock);
-        }
-        to[r * features + f] = total;
+        const float* const sw = weight.scales + f * blocks;
+        to[r * features + f] = Row(xr, sx, w, sw, blocks);
       }
     }
   });

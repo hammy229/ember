@@ -87,7 +87,7 @@ TEST(Quant, RefusesWhatItCannotQuantize) {
   EXPECT_FALSE(ember::QuantizeQ8(w, arena).ok());
 }
 
-TEST(Quant, LinearQ8MatchesLinearOnTheDequantizedWeights) {
+TEST(Quant, LinearQ8MatchesLinearOnTheDequantizedWeightsAndInputs) {
   Arena arena;
   const Tensor x = Random(arena, 3, 128, 3);
   const Tensor w = Random(arena, 70, 128, 4);
@@ -98,11 +98,19 @@ TEST(Quant, LinearQ8MatchesLinearOnTheDequantizedWeights) {
     for (std::size_t c = 0; c < 128; ++c) back[r * 128 + c] = Dequantized(*q, r, c);
   }
   const Tensor w2 = Tensor::FromValues<float>(arena, *ember::Shape::Make({70, 128}), back).value();
+  // The kernel quantizes its input the same way, so compare with the dequantized input too.
+  const auto xq = ember::QuantizeQ8(x, arena);
+  ASSERT_TRUE(xq.ok());
+  std::vector<float> xback(3 * 128);
+  for (std::size_t r = 0; r < 3; ++r) {
+    for (std::size_t c = 0; c < 128; ++c) xback[r * 128 + c] = Dequantized(*xq, r, c);
+  }
+  const Tensor x2 = Tensor::FromValues<float>(arena, *ember::Shape::Make({3, 128}), xback).value();
   const auto shape = *ember::Shape::Make({3, 70});
   const Tensor a = Tensor::Uninitialized(arena, ember::DType::kF32, shape).value();
   const Tensor b = Tensor::Uninitialized(arena, ember::DType::kF32, shape).value();
   ASSERT_TRUE(ember::LinearQ8(x, *q, a).ok());
-  ASSERT_TRUE(ember::Linear(x, w2, b).ok());
+  ASSERT_TRUE(ember::Linear(x2, w2, b).ok());
   for (std::size_t i = 0; i < 3 * 70; ++i) {
     EXPECT_NEAR(a.data<float>()[i], b.data<float>()[i], 1e-4) << i;
   }
