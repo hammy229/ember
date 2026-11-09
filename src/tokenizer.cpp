@@ -176,14 +176,15 @@ StatusOr<Tokenizer> Tokenizer::FromJson(std::string_view tokenizer_json) {
   std::vector<bool> seen(n, false);
   for (std::size_t i = 0; i < n; ++i) {
     const std::optional<std::uint64_t> id = vocab->items()[i].as_uint64();
-    if (!id || *id >= n || seen[*id]) {
+    if (!id || *id >= n || seen[static_cast<std::size_t>(*id)]) {
       return Status::InvalidFormat("tokenizer.json: vocab ids must be 0 to " +
                                    std::to_string(n - 1) + ", each used once");
     }
-    seen[*id] = true;
+    const auto index = static_cast<std::size_t>(*id);
+    seen[index] = true;
     const std::string& piece = vocab->keys()[i];
-    t.pieces_[*id] = piece;
-    t.ids_.emplace(piece, static_cast<std::int32_t>(*id));
+    t.pieces_[index] = piece;
+    t.ids_.emplace(piece, static_cast<std::int32_t>(index));
   }
   t.byte_ids_.fill(-1);
   for (std::size_t id = 0; id < n; ++id) {
@@ -239,7 +240,7 @@ StatusOr<Tokenizer> Tokenizer::FromJson(std::string_view tokenizer_json) {
       const std::optional<std::uint64_t> id =
           id_value != nullptr ? id_value->as_uint64() : std::nullopt;
       if (content == nullptr || !content->is_string() || content->as_string().empty() || !id ||
-          *id >= n || t.pieces_[*id] != content->as_string()) {
+          *id >= n || t.pieces_[static_cast<std::size_t>(*id)] != content->as_string()) {
         return Status::InvalidFormat("tokenizer.json: an added token does not match the vocab");
       }
       const Json* normalized = Member(token, "normalized");
@@ -251,7 +252,7 @@ StatusOr<Tokenizer> Tokenizer::FromJson(std::string_view tokenizer_json) {
       }
       t.specials_.push_back(
           Special{Normalize(content->as_string()), static_cast<std::int32_t>(*id)});
-      t.is_special_[*id] = true;
+      t.is_special_[static_cast<std::size_t>(*id)] = true;
       if (content->as_string() == "<s>") t.bos_id_ = static_cast<std::int32_t>(*id);
       if (content->as_string() == "</s>") t.eos_id_ = static_cast<std::int32_t>(*id);
     }
