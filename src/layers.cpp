@@ -10,6 +10,7 @@
 #include <string_view>
 
 #include "ember/ops.h"
+#include "ember/threads.h"
 
 namespace ember {
 
@@ -86,8 +87,13 @@ Status Linear(const TensorView& x, const TensorView& weight, const Tensor& out) 
   const float* const xs = x.data<float>();
   const float* const ws = weight.data<float>();
   float* const to = out.data<float>();
-  for (std::size_t r = 0; r < rows; ++r)
-    LinearRow(xs + r * in, ws, in, features, to + r * features);
+  // Threads split the output features. Each output is still one dot product computed by the same
+  // code in the same order, so the result is the same for any number of threads.
+  ParallelFor(features, 64, [&](std::size_t begin, std::size_t end) {
+    for (std::size_t r = 0; r < rows; ++r) {
+      LinearRow(xs + r * in, ws + begin * in, in, end - begin, to + r * features + begin);
+    }
+  });
   return Status::Ok();
 }
 

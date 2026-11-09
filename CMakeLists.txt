@@ -51,10 +51,13 @@ add_library(ember STATIC
   src/shape.cpp
   src/status.cpp
   src/tensor.cpp
+  src/threads.cpp
   src/tokenizer.cpp
   src/unicode.cpp)
 target_include_directories(ember PUBLIC include)
 target_link_libraries(ember PRIVATE ember_warnings)
+find_package(Threads REQUIRED)
+target_link_libraries(ember PUBLIC Threads::Threads)
 
 if(EMSCRIPTEN)
   add_executable(ember_wasm wasm/exports.cpp)
@@ -129,6 +132,7 @@ if(EMBER_BUILD_TESTS)
     tests/status_or_test.cpp
     tests/status_test.cpp
     tests/tensor_test.cpp
+    tests/threads_test.cpp
     tests/timer_test.cpp
     tests/tokenizer_test.cpp
     tests/unicode_test.cpp
