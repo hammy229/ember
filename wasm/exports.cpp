@@ -6,13 +6,21 @@
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
+#include <memory>
+#include <optional>
 #include <random>
 #include <span>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include "ember/arena.h"
+#include "ember/generate.h"
+#include "ember/llama.h"
 #include "ember/ops.h"
 #include "ember/shape.h"
 #include "ember/tensor.h"
+#include "ember/tokenizer.h"
 #include "ember/version.h"
 
 namespace {
@@ -235,6 +243,85 @@ float MatMulBench(int size, int calls) {
   return out.data<float>()[0];
 }
 
+// The model the page loaded, and the generation in progress. One of each is plenty for a demo.
+struct Loaded {
+  std::vector<std::byte> weights;  // the model's views point into this, so it lives as long
+  std::unique_ptr<ember::LlamaModel> model;
+  std::optional<ember::Tokenizer> tokenizer;
+};
+std::unique_ptr<Loaded> g_loaded;
+std::unique_ptr<ember::Generator> g_generator;
+std::vector<std::int32_t> g_text_ids;  // the prompt (without <s>) and every token so far
+std::string g_text;
+std::string g_error;
+// The last token: id, entropy, top-2 margin, top-1 probability, and the byte offset in g_text where
+// its text starts.
+std::array<float, 5> g_last{};
+
+int Fail(const ember::Status& status) {
+  g_error = status.ToString();
+  return -1;
+}
+
+int LoadModel(const char* config, int config_bytes, const std::byte* weights, int weight_bytes,
+              const char* tokenizer_json, int tokenizer_bytes) {
+  g_generator.reset();
+  g_loaded.reset();
+  if (config_bytes < 0 || weight_bytes < 0 || tokenizer_bytes < 0) {
+    return Fail(ember::Status::InvalidArgument("negative size"));
+  }
+  auto loaded = std::make_unique<Loaded>();
+  loaded->weights.assign(weights, weights + weight_bytes);
+  auto model = ember::LlamaModel::FromBytes(
+      std::string_view(config, static_cast<std::size_t>(config_bytes)), loaded->weights);
+  if (!model.ok()) return Fail(model.status());
+  loaded->model = std::move(model).value();
+  auto tokenizer = ember::Tokenizer::FromJson(
+      std::string_view(tokenizer_json, static_cast<std::size_t>(tokenizer_bytes)));
+  if (!tokenizer.ok()) return Fail(tokenizer.status());
+  loaded->tokenizer.emplace(std::move(tokenizer).value());
+  g_loaded = std::move(loaded);
+  return 0;
+}
+
+int StartGeneration(const char* prompt, int max_tokens, float temperature, float top_p, int seed) {
+  g_generator.reset();
+  if (!g_loaded) return Fail(ember::Status::InvalidArgument("no model is loaded"));
+  if (max_tokens < 0) return Fail(ember::Status::InvalidArgument("negative token count"));
+  const std::vector<std::int32_t> ids = g_loaded->tokenizer->Encode(prompt, true);
+  ember::GenerateOptions options;
+  options.max_new_tokens = static_cast<std::size_t>(max_tokens);
+  options.sampling.temperature = temperature;
+  options.sampling.top_p = top_p;
+  options.sampling.seed = static_cast<std::uint64_t>(static_cast<std::uint32_t>(seed));
+  options.stop_token = g_loaded->tokenizer->eos_id();
+  auto generator = ember::Generator::Make(*g_loaded->model, ids, options);
+  if (!generator.ok()) return Fail(generator.status());
+  g_generator = std::move(generator).value();
+  g_text_ids.assign(ids.begin() + 1, ids.end());
+  g_text = g_loaded->tokenizer->Decode(g_text_ids).value();
+  return static_cast<int>(ids.size());
+}
+
+// 1 for a new token, 0 when generation is over, -1 on an error.
+int StepGeneration() {
+  if (!g_generator) return Fail(ember::Status::InvalidArgument("nothing is being generated"));
+  const auto token = g_generator->Next();
+  if (!token.ok()) return Fail(token.status());
+  if (!token->has_value()) return 0;
+  const ember::GeneratedToken& t = **token;
+  const std::size_t start = g_text.size();
+  if (t.id != g_loaded->tokenizer->eos_id()) {
+    g_text_ids.push_back(t.id);
+    const auto text = g_loaded->tokenizer->Decode(g_text_ids);
+    if (!text.ok()) return Fail(text.status());
+    g_text = *text;
+  }
+  g_last = {static_cast<float>(t.id), t.stats.entropy, t.stats.margin, t.stats.top1_prob,
+            static_cast<float>(start)};
+  return 1;
+}
+
 }  // namespace
 
 extern "C" {
@@ -263,5 +350,24 @@ EMSCRIPTEN_KEEPALIVE int ember_softmax_row(const float* logits, float* out, int 
 EMSCRIPTEN_KEEPALIVE float ember_matmul_bench(int size, int calls) {
   return MatMulBench(size, calls);
 }
+
+EMSCRIPTEN_KEEPALIVE int ember_load_model(const char* config, int config_bytes,
+                                          const std::byte* weights, int weight_bytes,
+                                          const char* tokenizer, int tokenizer_bytes) {
+  return LoadModel(config, config_bytes, weights, weight_bytes, tokenizer, tokenizer_bytes);
+}
+
+EMSCRIPTEN_KEEPALIVE int ember_generate_start(const char* prompt, int max_tokens, float temperature,
+                                              float top_p, int seed) {
+  return StartGeneration(prompt, max_tokens, temperature, top_p, seed);
+}
+
+EMSCRIPTEN_KEEPALIVE int ember_generate_step() { return StepGeneration(); }
+
+EMSCRIPTEN_KEEPALIVE const char* ember_generated_text() { return g_text.c_str(); }
+
+EMSCRIPTEN_KEEPALIVE const float* ember_last_token() { return g_last.data(); }
+
+EMSCRIPTEN_KEEPALIVE const char* ember_last_error() { return g_error.c_str(); }
 
 }  // extern "C"
