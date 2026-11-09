@@ -33,7 +33,9 @@ int Usage() {
                "         --top-k K    keep the K likeliest tokens (default all)\n"
                "         --top-p P    keep the likeliest tokens up to probability P (default 1)\n"
                "         --seed S     random seed (default 0)\n"
-               "         --stats      show each token's entropy and top-2 margin afterwards\n";
+               "         --stats      show each token's entropy and top-2 margin afterwards\n"
+               "         --chat       wrap the prompt as one user turn in the model's chat format\n"
+               "                      (Qwen3, with thinking turned off)\n";
   return 2;
 }
 
@@ -129,6 +131,7 @@ int RunGenerate(int argc, char** argv) {
   ember::GenerateOptions options;
   options.max_new_tokens = 128;
   bool show_stats = false;
+  bool chat = false;
   std::string prompt;
   for (int i = 3; i < argc; ++i) {
     const std::string_view arg = argv[i];
@@ -146,6 +149,8 @@ int RunGenerate(int argc, char** argv) {
       ok = ParseNumber(argv[++i], options.sampling.seed);
     } else if (arg == "--stats") {
       show_stats = true;
+    } else if (arg == "--chat") {
+      chat = true;
     } else if (i == argc - 1 && !arg.starts_with("--")) {
       prompt = arg;
     } else {
@@ -165,18 +170,33 @@ int RunGenerate(int argc, char** argv) {
     std::cerr << "error: " << tokenizer.status().ToString() << '\n';
     return 1;
   }
+  if (chat) {
+    if (tokenizer->kind() != ember::Tokenizer::Kind::kByteLevel) {
+      std::cerr << "error: --chat needs a model with a chat format, like Qwen3\n";
+      return 1;
+    }
+    prompt = "<|im_start|>user\n" + prompt +
+             "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
+  }
   const std::vector<std::int32_t> prompt_ids = tokenizer->Encode(prompt, true);
-  options.stop_tokens = {tokenizer->eos_id(), tokenizer->bos_id()};
+  options.stop_tokens = tokenizer->stop_ids();
+  const auto is_stop = [&](std::int32_t id) {
+    return std::find(options.stop_tokens.begin(), options.stop_tokens.end(), id) !=
+           options.stop_tokens.end();
+  };
 
   // Decoding the prompt and the new tokens together keeps the space before the first new word.
   // Only text that is settled gets printed: a run of byte pieces still waiting for the rest of its
   // character decodes to U+FFFD for now.
-  std::vector<std::int32_t> text_ids(prompt_ids.begin() + 1, prompt_ids.end());
+  // A chat prompt is not echoed, only the reply.
+  const bool skip_bos = !prompt_ids.empty() && prompt_ids[0] == tokenizer->bos_id();
+  std::vector<std::int32_t> text_ids(prompt_ids.begin() + (skip_bos ? 1 : 0), prompt_ids.end());
+  if (chat) text_ids.clear();
   const std::string prompt_text = tokenizer->Decode(text_ids).value();
   std::size_t printed = prompt_text.size();
   std::cout << prompt_text << std::flush;
   const auto on_token = [&](const ember::GeneratedToken& token, std::size_t) {
-    if (token.id == tokenizer->eos_id() || token.id == tokenizer->bos_id()) return true;
+    if (is_stop(token.id)) return true;
     text_ids.push_back(token.id);
     const auto text = tokenizer->Decode(text_ids);
     if (!text.ok() || text->size() < printed) return true;

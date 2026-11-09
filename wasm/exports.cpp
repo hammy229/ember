@@ -1,5 +1,6 @@
 #include <emscripten/emscripten.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -294,11 +295,12 @@ int StartGeneration(const char* prompt, int max_tokens, float temperature, float
   options.sampling.temperature = temperature;
   options.sampling.top_p = top_p;
   options.sampling.seed = static_cast<std::uint64_t>(static_cast<std::uint32_t>(seed));
-  options.stop_tokens = {g_loaded->tokenizer->eos_id(), g_loaded->tokenizer->bos_id()};
+  options.stop_tokens = g_loaded->tokenizer->stop_ids();
   auto generator = ember::Generator::Make(*g_loaded->model, ids, options);
   if (!generator.ok()) return Fail(generator.status());
   g_generator = std::move(generator).value();
-  g_text_ids.assign(ids.begin() + 1, ids.end());
+  const bool skip_bos = !ids.empty() && ids[0] == g_loaded->tokenizer->bos_id();
+  g_text_ids.assign(ids.begin() + (skip_bos ? 1 : 0), ids.end());
   g_text = g_loaded->tokenizer->Decode(g_text_ids).value();
   return static_cast<int>(ids.size());
 }
@@ -311,7 +313,8 @@ int StepGeneration() {
   if (!token->has_value()) return 0;
   const ember::GeneratedToken& t = **token;
   const std::size_t start = g_text.size();
-  if (t.id != g_loaded->tokenizer->eos_id() && t.id != g_loaded->tokenizer->bos_id()) {
+  const auto& stops = g_loaded->tokenizer->stop_ids();
+  if (std::find(stops.begin(), stops.end(), t.id) == stops.end()) {
     g_text_ids.push_back(t.id);
     const auto text = g_loaded->tokenizer->Decode(g_text_ids);
     if (!text.ok()) return Fail(text.status());
