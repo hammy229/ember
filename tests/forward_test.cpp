@@ -433,7 +433,9 @@ TEST(ForwardTrace, TracingChangesNothingAndRecordsEveryLayer) {
         double total = 0;
         for (std::size_t j = 0; j < n; ++j) {
           const float p = layer[(h * n + i) * n + j];
-          if (j > i) EXPECT_EQ(p, 0.0F) << "token " << i << " looked ahead at " << j;
+          if (j > i) {
+            EXPECT_EQ(p, 0.0F) << "token " << i << " looked ahead at " << j;
+          }
           total += p;
         }
         EXPECT_NEAR(total, 1.0, 1e-5);
