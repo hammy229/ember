@@ -1,0 +1,131 @@
+{
+ "questions": 1319,
+ "local_accuracy": 0.6209,
+ "escalate": 0.3,
+ "answers_without_answer_is": 250,
+ "answers_cut_off_at_max_tokens": 121,
+ "signals": {
+  "mean entropy": {
+   "auroc": 0.74,
+   "auroc_95": [
+    0.711,
+    0.768
+   ],
+   "errors_caught": 0.526,
+   "errors_caught_95": [
+    0.494,
+    0.558
+   ]
+  },
+  "max entropy": {
+   "auroc": 0.74,
+   "auroc_95": [
+    0.712,
+    0.768
+   ],
+   "errors_caught": 0.51,
+   "errors_caught_95": [
+    0.478,
+    0.545
+   ]
+  },
+  "lowest margin": {
+   "auroc": 0.592,
+   "auroc_95": [
+    0.558,
+    0.622
+   ],
+   "errors_caught": 0.362,
+   "errors_caught_95": [
+    0.332,
+    0.399
+   ]
+  },
+  "share of tokens with margin under 0.5": {
+   "auroc": 0.698,
+   "auroc_95": [
+    0.668,
+    0.727
+   ],
+   "errors_caught": 0.474,
+   "errors_caught_95": [
+    0.44,
+    0.505
+   ]
+  },
+  "mean entropy, first 32 tokens only": {
+   "auroc": 0.646,
+   "auroc_95": [
+    0.614,
+    0.676
+   ],
+   "errors_caught": 0.416,
+   "errors_caught_95": [
+    0.379,
+    0.448
+   ]
+  },
+  "question length (baseline)": {
+   "auroc": 0.687,
+   "auroc_95": [
+    0.658,
+    0.717
+   ],
+   "errors_caught": 0.456,
+   "errors_caught_95": [
+    0.426,
+    0.492
+   ]
+  },
+  "random (baseline)": {
+   "auroc": 0.478,
+   "auroc_95": [
+    0.446,
+    0.51
+   ],
+   "errors_caught": 0.276,
+   "errors_caught_95": [
+    0.245,
+    0.307
+   ]
+  }
+ },
+ "versus_length": {
+  "signal": "max entropy",
+  "candidates": 5,
+  "auroc_gain": 0.053,
+  "auroc_gain_95": [
+   0.023,
+   0.094
+  ]
+ },
+ "held_out": {
+  "signal": "max entropy",
+  "threshold": 2.272105,
+  "questions": 660,
+  "calibration_escalated_share": 0.3,
+  "escalated_share": 0.289,
+  "errors_caught": 0.512,
+  "errors_caught_95": [
+   0.45,
+   0.575
+  ],
+  "local_accuracy_all": 0.612,
+  "local_accuracy_kept": 0.733,
+  "local_accuracy_kept_95": [
+   0.693,
+   0.773
+  ]
+ },
+ "speed": {
+  "threads": 6,
+  "mean_seconds_per_question": 17.29,
+  "mean_tokens_per_answer": 232.0
+ },
+ "setup": {
+  "model": "Qwen/Qwen3-0.6B c1899de, f32 weights, greedy, chat format with thinking off",
+  "data": "openai/gsm8k test, revision 740312add88f781978c0658806c59bc2815b9866",
+  "instruction": "Solve it step by step, then end with: The answer is <number>.",
+  "max_new_tokens": 384
+ }
+}
