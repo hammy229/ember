@@ -178,6 +178,10 @@ if(EMBER_BUILD_TESTS)
   set_tests_properties(cli_generate_reports_a_missing_model PROPERTIES
     PASS_REGULAR_EXPRESSION "NOT_FOUND")
 
+  add_test(NAME cli_batch_resumes_a_stopped_run
+           COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/batch_resume_test.sh $<TARGET_FILE:ember_cli>)
+  set_tests_properties(cli_batch_resumes_a_stopped_run PROPERTIES SKIP_RETURN_CODE 77)
+
   add_test(NAME bench_model_rejects_bad_repeats COMMAND ember_bench_model /no/model 0)
   set_tests_properties(bench_model_rejects_bad_repeats PROPERTIES PASS_REGULAR_EXPRESSION "usage:")
 

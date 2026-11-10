@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <iostream>
 #include <numeric>
+#include <set>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -58,9 +59,10 @@ int Usage() {
          "         --chat       wrap the prompt as one user turn in the model's chat format\n"
          "                      (Qwen3, with thinking turned off)\n"
          "       ember batch MODEL_DIR IN.jsonl OUT.jsonl [--tokens N] [--threads N] [--chat] "
-         "[--q8]\n"
+         "[--q8] [--resume]\n"
          "                                answer each {\"id\", \"prompt\"} line greedily, writing\n"
-         "                                the text and every token's entropy and margin\n";
+         "                                the text and every token's entropy and margin;\n"
+         "                                --resume keeps OUT's answers and skips their ids\n";
   return 2;
 }
 
@@ -215,6 +217,30 @@ std::string ChatPrompt(std::string_view prompt) {
 }
 
 // Loads the model once and answers many prompts, for evaluations like scripts/route_eval.py.
+// How an answer's id is written in OUT.jsonl, so ids read back from a file compare equal.
+std::string IdJson(const ember::Json& id) {
+  return id.is_string() ? JsonString(id.as_string()) : std::to_string(*id.as_uint64());
+}
+
+// Keeps the complete answers already in `path` and returns their ids. A last line cut off
+// when a run was stopped is dropped, so the file can be appended to.
+bool KeepFinishedAnswers(const std::string& path, std::set<std::string>& ids) {
+  std::ifstream in(path);
+  if (!in) return true;  // nothing written yet
+  std::vector<std::string> kept;
+  std::string line;
+  while (std::getline(in, line)) {
+    const auto record = ember::Json::Parse(line);
+    const ember::Json* id = record.ok() && record->is_object() ? record->Find("id") : nullptr;
+    if (id == nullptr || !(id->is_string() || id->as_uint64().has_value())) continue;
+    if (ids.insert(IdJson(*id)).second) kept.push_back(line);
+  }
+  in.close();
+  std::ofstream out(path, std::ios::trunc);
+  for (const auto& k : kept) out << k << '\n';
+  return static_cast<bool>(out.flush());
+}
+
 int RunBatch(int argc, char** argv) {
   if (argc < 5) return Usage();
   const std::string directory = argv[2];
@@ -223,6 +249,7 @@ int RunBatch(int argc, char** argv) {
   ember::GenerateOptions options;
   options.max_new_tokens = 256;
   bool chat = false;
+  bool resume = false;
   ember::LoadOptions load;
   for (int i = 5; i < argc; ++i) {
     const std::string_view arg = argv[i];
@@ -237,10 +264,17 @@ int RunBatch(int argc, char** argv) {
       chat = true;
     } else if (arg == "--q8") {
       load.q8 = true;
+    } else if (arg == "--resume") {
+      resume = true;
     } else {
       ok = false;
     }
     if (!ok) return Usage();
+  }
+  std::set<std::string> finished;
+  if (resume && !KeepFinishedAnswers(out_path, finished)) {
+    std::cerr << "error: could not rewrite " << out_path << '\n';
+    return 1;
   }
   const auto model = ember::LlamaModel::Load(directory, load);
   if (!model.ok()) {
@@ -258,13 +292,13 @@ int RunBatch(int argc, char** argv) {
   }
   options.stop_tokens = tokenizer->stop_ids();
   std::ifstream in(in_path);
-  std::ofstream out(out_path, std::ios::trunc);
+  std::ofstream out(out_path, resume ? std::ios::app : std::ios::trunc);
   if (!in || !out) {
     std::cerr << "error: could not open " << (in ? out_path : in_path) << '\n';
     return 1;
   }
   std::string line;
-  std::size_t done = 0;
+  std::size_t done = finished.size();
   while (std::getline(in, line)) {
     if (line.empty()) continue;
     const auto record = ember::Json::Parse(line);
@@ -276,6 +310,8 @@ int RunBatch(int argc, char** argv) {
       std::cerr << "error: each line needs an \"id\" and a string \"prompt\"\n";
       return 1;
     }
+    const std::string id_json = IdJson(*id);
+    if (finished.contains(id_json)) continue;
     const std::string text = chat ? ChatPrompt(prompt->as_string()) : prompt->as_string();
     const std::vector<std::int32_t> ids = tokenizer->Encode(text, true);
     const ember::Stopwatch stopwatch;
@@ -292,8 +328,6 @@ int RunBatch(int argc, char** argv) {
         reply.push_back(t.id);
       }
     }
-    const std::string id_json =
-        id->is_string() ? JsonString(id->as_string()) : std::to_string(*id->as_uint64());
     out << "{\"id\": " << id_json << ", \"text\": " << JsonString(tokenizer->Decode(reply).value())
         << ", \"prompt_tokens\": " << ids.size() << ", \"ms\": " << ms
         << ", \"stop\": " << static_cast<int>(result->stop) << ", \"tokens\": [";
