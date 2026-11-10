@@ -55,6 +55,10 @@ ESCALATE = 0.30
 EARLY_TOKENS = 32
 
 
+# Signals ember route decides on exactly as the full answer would (see include/ember/route.h).
+DEPLOYABLE = ("max entropy", "lowest margin")
+
+
 def number(text):
     text = text.replace(",", "").replace("$", "")
     try:
@@ -176,8 +180,10 @@ def main():
             "errors_caught_95": bootstrap(lambda idx: caught([scores[i] for i in idx], [wrong[i] for i in idx], ESCALATE), n),
         }
 
-    # Held out: pick the threshold on the first half, apply it to the second.
-    best = max(signals[:-1], key=lambda k: report["signals"][k]["auroc"])
+    # Held out: pick the threshold on the first half, apply it to the second. Only the two signals
+    # that never go down are candidates: `ember route` stops on them mid-answer and still makes the
+    # decision scored here, which is not true of the averages.
+    best = max(DEPLOYABLE, key=lambda k: report["signals"][k]["auroc"])
     half = n // 2
     calib = sorted((rows[i][best] for i in range(half)), reverse=True)
     threshold = calib[int(round(ESCALATE * half)) - 1]
@@ -187,7 +193,7 @@ def main():
     kept = [i for i in test if i not in set(sent)]
     report["held_out"] = {
         "signal": best,
-        "threshold": round(threshold, 4),
+        "threshold": threshold,
         "questions": len(test),
         "escalated_share": round(len(sent) / len(test), 3),
         "errors_caught": round(sum(wrong[i] for i in sent) / len(test_wrong), 3) if test_wrong else None,
@@ -238,6 +244,15 @@ def main():
         f"{h['escalated_share']:.1%} of them and caught {h['errors_caught']:.1%} of the local "
         f"model's wrong answers. Accuracy on the questions kept local went from "
         f"{h['local_accuracy_all']:.1%} (keeping all) to {h['local_accuracy_kept']:.1%}.",
+        "",
+        "Only max entropy and lowest margin were candidates here, because they never go down as an "
+        "answer goes on, so `ember route` can stop the moment one crosses the threshold and still "
+        "make the same call as the full answer. To run it:",
+        "",
+        "```sh",
+        f"ember route models/qwen3-0.6b --signal \"{h['signal']}\" --threshold {h['threshold']:g} "
+        "\"your question\"",
+        "```",
         "",
         "## Limits",
         "",
