@@ -338,7 +338,8 @@ def main():
         "their last number. Both count toward the local accuracy above.",
         "- f32 weights. With --q8 the entropies shift a little, so this threshold is for f32.",
         f"- Speed: {report['speed']['mean_seconds_per_question']} s per question on average with "
-        f"{args.threads} threads, {report['speed']['mean_tokens_per_answer']} tokens per answer.",
+        f"{args.threads} threads, {report['speed']['mean_tokens_per_answer']} tokens per answer, on a "
+        "machine that was not kept idle, so this is a rough figure, not a benchmark.",
         "",
     ]
     (out / "route-gsm8k.md").write_text("\n".join(lines))
