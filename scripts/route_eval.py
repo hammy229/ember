@@ -69,7 +69,8 @@ def number(text):
 
 
 def extract(answer):
-    match = re.findall(r"answer is[^0-9\-]*(-?[\d,]*\.?\d+)", answer, flags=re.IGNORECASE)
+    """The number after the last "answer is", or failing that the last number in the text."""
+    match = re.findall(r"answer is[^\d\n\-]{0,12}(-?[\d,]*\.?\d+)", answer, flags=re.IGNORECASE)
     if match:
         return number(match[-1])
     numbers = re.findall(r"-?[\d,]*\.?\d+", answer)
@@ -78,18 +79,14 @@ def extract(answer):
 
 def auroc(scores, wrong):
     """Chance a wrong answer scores higher than a right one, ties counted half."""
-    pos = [s for s, w in zip(scores, wrong) if w]
-    neg = [s for s, w in zip(scores, wrong) if not w]
-    if not pos or not neg:
+    values = np.asarray(scores, dtype=float)
+    w = np.asarray(wrong, dtype=bool)
+    n_wrong, n_right = int(w.sum()), int((~w).sum())
+    if not n_wrong or not n_right:
         return float("nan")
-    ranks = np.argsort(np.argsort(np.array(pos + neg), kind="stable"), kind="stable").astype(float)
-    # Average ranks for ties.
-    values = np.array(pos + neg)
-    for v in np.unique(values):
-        idx = values == v
-        ranks[idx] = ranks[idx].mean()
-    rank_sum = ranks[: len(pos)].sum() + len(pos)  # 1-based
-    return float((rank_sum - len(pos) * (len(pos) + 1) / 2) / (len(pos) * len(neg)))
+    _, inverse, counts = np.unique(values, return_inverse=True, return_counts=True)
+    ranks = (np.cumsum(counts) - (counts - 1) / 2)[inverse]  # 1-based, ties averaged
+    return float((ranks[w].sum() - n_wrong * (n_wrong + 1) / 2) / (n_wrong * n_right))
 
 
 def caught(scores, wrong, share):
@@ -101,7 +98,7 @@ def caught(scores, wrong, share):
     return sum(wrong[i] for i in order) / total_wrong if total_wrong else float("nan")
 
 
-def bootstrap(fn, n, seed=0, rounds=1000):
+def bootstrap(fn, n, seed=0, rounds=2000):
     rng = np.random.default_rng(seed)
     out = []
     for _ in range(rounds):
@@ -109,6 +106,7 @@ def bootstrap(fn, n, seed=0, rounds=1000):
         value = fn(idx)
         if not math.isnan(value):
             out.append(value)
+    assert len(out) >= 0.99 * rounds, "too many resamples had no wrong or no right answers"
     return [round(float(np.percentile(out, 2.5)), 3), round(float(np.percentile(out, 97.5)), 3)]
 
 
@@ -130,6 +128,7 @@ def main():
     if args.limit:
         table = table[: args.limit]
     gold = [number(row["answer"].split("####")[-1].strip()) for row in table]
+    assert all(g is not None and math.isfinite(g) for g in gold), "unreadable gold answer"
 
     prompts = WORK / "prompts.jsonl"
     answers = WORK / "answers.jsonl"
@@ -149,9 +148,12 @@ def main():
         sys.exit(f"have {len(results)} answers for {len(table)} questions")
 
     wrong, rows = [], []
+    fallback = truncated = 0
     for r, g in zip(results, gold):
         got = extract(r["text"])
-        is_wrong = got is None or g is None or abs(got - g) > 1e-6
+        fallback += not re.search(r"answer is", r["text"], flags=re.IGNORECASE)
+        truncated += r["stop"] == 0  # Generation::Stop::kMaxTokens
+        is_wrong = got is None or abs(got - g) > 1e-6
         wrong.append(is_wrong)
         entropy = np.array([t[1] for t in r["tokens"]] or [0.0])
         margin = np.array([t[2] for t in r["tokens"]] or [1.0])
@@ -170,7 +172,8 @@ def main():
     random_scores = [rng.random() for _ in range(n)]
     signals = [k for k in rows[0] if k not in ("ms", "tokens")]
     report = {"questions": n, "local_accuracy": round(1 - sum(wrong) / n, 4),
-              "escalate": ESCALATE, "signals": {}}
+              "escalate": ESCALATE, "answers_without_answer_is": fallback,
+              "answers_cut_off_at_max_tokens": truncated, "signals": {}}
     for name in signals + ["random (baseline)"]:
         scores = random_scores if name == "random (baseline)" else [row[name] for row in rows]
         report["signals"][name] = {
@@ -180,41 +183,66 @@ def main():
             "errors_caught_95": bootstrap(lambda idx: caught([scores[i] for i in idx], [wrong[i] for i in idx], ESCALATE), n),
         }
 
-    # Is the best logit signal better than just counting the question's tokens? Same resamples for
-    # both, so the interval is on the difference itself.
-    length = [row["question length (baseline)"] for row in rows]
-    top = max(signals[:-1], key=lambda k: report["signals"][k]["auroc"])
-    top_scores = [row[top] for row in rows]
+    # Is the best logit signal better than just counting the question's tokens? The best of the
+    # logit signals is picked on this same data, so each resample picks again; otherwise the
+    # interval would be too kind to the winner.
+    logit_signals = [k for k in signals if "baseline" not in k]
+    length = np.array([row["question length (baseline)"] for row in rows])
+    columns = {k: np.array([row[k] for row in rows]) for k in logit_signals}
+    wrong_array = np.array(wrong)
+    top = max(logit_signals, key=lambda k: auroc(columns[k], wrong))
 
     def gap(idx):
-        w = [wrong[i] for i in idx]
-        return auroc([top_scores[i] for i in idx], w) - auroc([length[i] for i in idx], w)
+        w = wrong_array[idx]
+        return max(auroc(columns[k][idx], w) for k in logit_signals) - auroc(length[idx], w)
 
     report["versus_length"] = {
         "signal": top,
-        "auroc_gain": round(auroc(top_scores, wrong) - auroc(length, wrong), 3),
+        "candidates": len(logit_signals),
+        "auroc_gain": round(auroc(columns[top], wrong) - auroc(length, wrong), 3),
         "auroc_gain_95": bootstrap(gap, n),
     }
 
-    # Held out: pick the threshold on the first half, apply it to the second. Only the two signals
-    # that never go down are candidates: `ember route` stops on them mid-answer and still makes the
-    # decision scored here, which is not true of the averages.
-    best = max(DEPLOYABLE, key=lambda k: report["signals"][k]["auroc"])
+    # Held out: the signal and threshold are both chosen on the first half, then used unchanged on
+    # the second. GSM8K's test file is not sorted by difficulty, so the split is in file order.
+    # Only the two signals that never go down are candidates: `ember route` stops on them
+    # mid-answer and still makes the decision scored here, which is not true of the averages.
     half = n // 2
-    calib = sorted((rows[i][best] for i in range(half)), reverse=True)
-    threshold = calib[int(round(ESCALATE * half)) - 1]
-    test = range(half, n)
-    sent = [i for i in test if rows[i][best] >= threshold]
-    test_wrong = [i for i in test if wrong[i]]
-    kept = [i for i in test if i not in set(sent)]
+    if half < 2:
+        sys.exit("need at least 4 questions for the held-out split")
+    first, second = list(range(half)), list(range(half, n))
+    best = max(DEPLOYABLE, key=lambda k: auroc(columns[k][first], wrong_array[first]))
+    calib = np.sort(columns[best][first])[::-1]
+    k = max(1, int(round(ESCALATE * half)))
+    # The logged scores have 6 significant digits, and the router compares the unrounded float.
+    # Putting the threshold halfway between the k-th score and the next lower one means no score
+    # sits on the boundary, so ember route makes the same call as this script.
+    lower = calib[calib < calib[k - 1]]
+    threshold = float((calib[k - 1] + lower[0]) / 2) if lower.size else float(calib[k - 1])
+    scores_2 = columns[best][second]
+    wrong_2 = wrong_array[second]
+
+    def held(idx):
+        sent = scores_2[idx] >= threshold
+        w = wrong_2[idx]
+        return {
+            "caught": w[sent].sum() / w.sum() if w.sum() else float("nan"),
+            "kept_accuracy": 1 - w[~sent].mean() if (~sent).any() else float("nan"),
+        }
+
+    point = held(np.arange(len(second)))
+    sent = scores_2 >= threshold
     report["held_out"] = {
         "signal": best,
         "threshold": threshold,
-        "questions": len(test),
-        "escalated_share": round(len(sent) / len(test), 3),
-        "errors_caught": round(sum(wrong[i] for i in sent) / len(test_wrong), 3) if test_wrong else None,
-        "local_accuracy_all": round(1 - len(test_wrong) / len(test), 3),
-        "local_accuracy_kept": round(1 - sum(wrong[i] for i in kept) / len(kept), 3) if kept else None,
+        "questions": len(second),
+        "calibration_escalated_share": round(float((calib >= threshold).mean()), 3),
+        "escalated_share": round(float(sent.mean()), 3),
+        "errors_caught": round(float(point["caught"]), 3),
+        "errors_caught_95": bootstrap(lambda idx: held(idx)["caught"], len(second)),
+        "local_accuracy_all": round(float(1 - wrong_2.mean()), 3),
+        "local_accuracy_kept": round(float(point["kept_accuracy"]), 3),
+        "local_accuracy_kept_95": bootstrap(lambda idx: held(idx)["kept_accuracy"], len(second)),
     }
     report["speed"] = {
         "threads": args.threads,
@@ -257,28 +285,37 @@ def main():
         "",
     ]
     v = report["versus_length"]
-    beats = v["auroc_gain_95"][0] > 0
+    low, high = v["auroc_gain_95"]
+    verdict = ("The whole interval is above zero, so the logits find mistakes better than length "
+               "alone does." if low > 0 else
+               "The whole interval is below zero, so length alone does better here." if high < 0
+               else "The interval includes zero, so this run cannot say the logits beat length.")
     lines += [
-        f"Longer questions are harder, so question length alone is a real baseline. {v['signal']} "
-        f"beats it by {v['auroc_gain']:+.3f} AUROC (95% CI [{v['auroc_gain_95'][0]:+.3f}, "
-        f"{v['auroc_gain_95'][1]:+.3f}], paired bootstrap), "
-        + ("so the logits add something length does not." if beats else
-           "and the interval includes zero, so this run cannot say the logits beat length."),
+        f"Longer questions are harder, so question length alone is a real baseline. The best of "
+        f"the {v['candidates']} logit signals, {v['signal']}, picked on this same data, differs "
+        f"from it by {v['auroc_gain']:+.3f} AUROC (95% CI [{low:+.3f}, {high:+.3f}], paired "
+        f"bootstrap that picks the best signal again in every resample). {verdict}",
         "",
         "## Held out",
         "",
-        f"The threshold on {h['signal']} was set on the first half of the questions to escalate "
-        f"{ESCALATE:.0%}, then used unchanged on the other {h['questions']}. It escalated "
-        f"{h['escalated_share']:.1%} of them and caught {h['errors_caught']:.1%} of the local "
-        f"model's wrong answers. Accuracy on the questions kept local went from "
-        f"{h['local_accuracy_all']:.1%} (keeping all) to {h['local_accuracy_kept']:.1%}.",
+        f"The signal ({h['signal']}) and its threshold were picked on the first {n - h['questions']} "
+        f"questions to escalate {ESCALATE:.0%} (it escalated {h['calibration_escalated_share']:.1%} "
+        f"there), then used unchanged on the other {h['questions']}. There it escalated "
+        f"{h['escalated_share']:.1%} and caught {h['errors_caught']:.1%} "
+        f"[{h['errors_caught_95'][0]:.1%}, {h['errors_caught_95'][1]:.1%}] of the local model's "
+        f"wrong answers, against about {h['escalated_share']:.0%} for escalating at random. "
+        f"Accuracy on the {1 - h['escalated_share']:.1%} kept local was "
+        f"{h['local_accuracy_kept']:.1%} [{h['local_accuracy_kept_95'][0]:.1%}, "
+        f"{h['local_accuracy_kept_95'][1]:.1%}], against {h['local_accuracy_all']:.1%} for keeping "
+        "everything local.",
         "",
         "Only max entropy and lowest margin were candidates here, because they never go down as an "
         "answer goes on, so `ember route` can stop the moment one crosses the threshold and still "
-        "make the same call as the full answer. To run it:",
+        "make the same call as the full answer. The threshold sits halfway between two logged "
+        "scores, so rounding in the log cannot flip a question. To run it:",
         "",
         "```sh",
-        f"ember route models/qwen3-0.6b --signal \"{h['signal']}\" --threshold {h['threshold']:g} "
+        f"ember route models/qwen3-0.6b --signal \"{h['signal']}\" --threshold {h['threshold']:.9g} "
         "\"your question\"",
         "```",
         "",
@@ -287,7 +324,12 @@ def main():
         "- No cloud model was called, so this measures whether the signal finds the local model's "
         "mistakes, not what a combined system would score.",
         "- One model, one benchmark, greedy decoding. Short math answers may make uncertainty "
-        "easier to read than open-ended chat.",
+        "easier to read than open-ended chat. GSM8K is public, so it may be in the model's "
+        "training data.",
+        f"- {report['answers_cut_off_at_max_tokens']} answers hit the {args.tokens} token cap and "
+        f"{report['answers_without_answer_is']} never said \"The answer is\"; those were scored on "
+        "their last number. Both count toward the local accuracy above.",
+        "- f32 weights. With --q8 the entropies shift a little, so this threshold is for f32.",
         f"- Speed: {report['speed']['mean_seconds_per_question']} s per question on average with "
         f"{args.threads} threads, {report['speed']['mean_tokens_per_answer']} tokens per answer.",
         "",
