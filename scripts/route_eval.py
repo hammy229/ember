@@ -30,7 +30,7 @@ No cloud model is called, so nothing here claims what a cloud model would have a
 docs/results/route-gsm8k.json and .md.
 
     ./scripts/fetch-model.sh qwen3-0.6b && cmake --build --preset release
-    uv run scripts/route_eval.py [--limit N] [--threads N]
+    uv run scripts/route_eval.py [--limit N] [--threads N] [--resume] [--analyze-only]
 """
 
 import argparse
@@ -114,6 +114,8 @@ def main():
     parser.add_argument("--threads", type=int, default=6)
     parser.add_argument("--tokens", type=int, default=384)
     parser.add_argument("--analyze-only", action="store_true")
+    parser.add_argument("--resume", action="store_true",
+                        help="keep the answers already in build/route and finish the rest")
     args = parser.parse_args()
 
     WORK.mkdir(parents=True, exist_ok=True)
@@ -134,7 +136,7 @@ def main():
         subprocess.run(
             [str(ROOT / "build/release/ember"), "batch", str(ROOT / "models/qwen3-0.6b"),
              str(prompts), str(answers), "--chat", "--threads", str(args.threads),
-             "--tokens", str(args.tokens)],
+             "--tokens", str(args.tokens)] + (["--resume"] if args.resume else []),
             check=True,
         )
     results = [json.loads(line) for line in answers.open()]
