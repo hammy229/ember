@@ -3,9 +3,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <numeric>
 #include <set>
 #include <string>
@@ -216,31 +218,58 @@ std::string ChatPrompt(std::string_view prompt) {
          "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
 }
 
-// Loads the model once and answers many prompts, for evaluations like scripts/route_eval.py.
 // How an answer's id is written in OUT.jsonl, so ids read back from a file compare equal.
 std::string IdJson(const ember::Json& id) {
   return id.is_string() ? JsonString(id.as_string()) : std::to_string(*id.as_uint64());
 }
 
-// Keeps the complete answers already in `path` and returns their ids. A last line cut off
-// when a run was stopped is dropped, so the file can be appended to.
-bool KeepFinishedAnswers(const std::string& path, std::set<std::string>& ids) {
-  std::ifstream in(path);
-  if (!in) return true;  // nothing written yet
-  std::vector<std::string> kept;
-  std::string line;
-  while (std::getline(in, line)) {
-    const auto record = ember::Json::Parse(line);
-    const ember::Json* id = record.ok() && record->is_object() ? record->Find("id") : nullptr;
-    if (id == nullptr || !(id->is_string() || id->as_uint64().has_value())) continue;
-    if (ids.insert(IdJson(*id)).second) kept.push_back(line);
-  }
+// Reads the ids of the answers already in `path` so a stopped run can carry on. Good lines are
+// never rewritten: a last line cut off mid-write is removed by shortening the file, so a kill
+// during the resume itself cannot lose answers. Any other bad line is refused, since stopping a
+// run cannot cause one.
+ember::Status KeepFinishedAnswers(const std::string& path, std::set<std::string>& ids) {
+  std::error_code error;
+  if (!std::filesystem::exists(path, error)) return ember::Status::Ok();  // nothing written yet
+  std::ifstream in(path, std::ios::binary);
+  if (!in) return ember::Status::InvalidArgument("could not read " + path);
+  const std::string text{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
   in.close();
-  std::ofstream out(path, std::ios::trunc);
-  for (const auto& k : kept) out << k << '\n';
-  return static_cast<bool>(out.flush());
+  std::size_t start = 0;
+  std::size_t line_number = 0;
+  while (start < text.size()) {
+    const std::size_t newline = text.find('\n', start);
+    const bool last = newline == std::string::npos;
+    const std::string_view line(text.data() + start, (last ? text.size() : newline) - start);
+    ++line_number;
+    const auto record = ember::Json::Parse(line);
+    const bool object = record.ok() && record->is_object();
+    const ember::Json* id = object ? record->Find("id") : nullptr;
+    const ember::Json* reply = object ? record->Find("text") : nullptr;
+    const bool good = id != nullptr && (id->is_string() || id->as_uint64().has_value()) &&
+                      reply != nullptr && reply->is_string();
+    if (!good) {
+      if (!last) {
+        return ember::Status::InvalidFormat(path + " line " + std::to_string(line_number) +
+                                            " is not a finished answer");
+      }
+      std::filesystem::resize_file(path, start, error);
+      if (error) return ember::Status::InvalidArgument("could not shorten " + path);
+      return ember::Status::Ok();
+    }
+    ids.insert(IdJson(*id));
+    if (last) {  // whole, but the newline never made it
+      std::ofstream out(path, std::ios::app);
+      if (!(out << '\n' << std::flush)) {
+        return ember::Status::InvalidArgument("could not write " + path);
+      }
+      return ember::Status::Ok();
+    }
+    start = newline + 1;
+  }
+  return ember::Status::Ok();
 }
 
+// Loads the model once and answers many prompts, for evaluations like scripts/route_eval.py.
 int RunBatch(int argc, char** argv) {
   if (argc < 5) return Usage();
   const std::string directory = argv[2];
@@ -272,9 +301,12 @@ int RunBatch(int argc, char** argv) {
     if (!ok) return Usage();
   }
   std::set<std::string> finished;
-  if (resume && !KeepFinishedAnswers(out_path, finished)) {
-    std::cerr << "error: could not rewrite " << out_path << '\n';
-    return 1;
+  if (resume) {
+    const ember::Status status = KeepFinishedAnswers(out_path, finished);
+    if (!status.ok()) {
+      std::cerr << "error: " << status.ToString() << '\n';
+      return 1;
+    }
   }
   const auto model = ember::LlamaModel::Load(directory, load);
   if (!model.ok()) {
@@ -337,6 +369,7 @@ int RunBatch(int argc, char** argv) {
           << ", " << t.stats.top1_prob << "]";
     }
     out << "]}\n" << std::flush;
+    finished.insert(id_json);  // a repeated id is answered once
     ++done;
     std::cerr << "\r" << done << " done" << std::flush;
   }

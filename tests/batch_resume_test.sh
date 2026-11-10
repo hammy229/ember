@@ -15,27 +15,46 @@ fi
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-printf '%s\n' '{"id": 0, "prompt": "Once upon a time"}' '{"id": "b", "prompt": "The dog"}' \
-  '{"id": 2, "prompt": "She said"}' > "$work/in.jsonl"
-
-"$ember" batch "$EMBER_MODEL_DIR" "$work/in.jsonl" "$work/full.jsonl" --tokens 8 2>/dev/null
-
-# A run stopped after the first answer, halfway through writing the second.
-head -n 1 "$work/full.jsonl" > "$work/out.jsonl"
-printf '{"id": "b", "text": "cut' >> "$work/out.jsonl"
-"$ember" batch "$EMBER_MODEL_DIR" "$work/in.jsonl" "$work/out.jsonl" --tokens 8 --resume \
-  2>/dev/null
-
+fail() {
+  echo "$1"
+  cat "$work/err" 2>/dev/null || true
+  exit 1
+}
+batch() {
+  out=$1
+  shift
+  "$ember" batch "$EMBER_MODEL_DIR" "$work/in.jsonl" "$work/$out" --tokens 8 "$@" 2>"$work/err"
+}
 # Greedy decoding gives the same answers apart from the timing field.
 strip() { sed 's/"ms": [^,]*,//' "$1"; }
-if [ "$(strip "$work/out.jsonl")" != "$(strip "$work/full.jsonl")" ]; then
-  echo "resumed output differs from a full run:"
-  cat "$work/out.jsonl"
-  exit 1
-fi
+same() { [ "$(strip "$work/$1")" = "$(strip "$work/full.jsonl")" ]; }
 
-# Resuming a finished file answers nothing new.
-"$ember" batch "$EMBER_MODEL_DIR" "$work/in.jsonl" "$work/out.jsonl" --tokens 8 --resume \
-  2>/dev/null
-[ "$(wc -l < "$work/out.jsonl")" -eq 3 ] || { echo "a finished file grew"; exit 1; }
+# Id 2 appears twice and is answered once.
+printf '%s\n' '{"id": 0, "prompt": "Once upon a time"}' '{"id": "b", "prompt": "The dog"}' \
+  '{"id": 2, "prompt": "She said"}' '{"id": 2, "prompt": "She said"}' > "$work/in.jsonl"
+batch full.jsonl || fail "the full run failed"
+[ "$(wc -l < "$work/full.jsonl")" -eq 3 ] || fail "a repeated id was answered twice"
+
+# A run stopped after the first answer, halfway through writing the second.
+head -n 1 "$work/full.jsonl" > "$work/cut.jsonl"
+printf '{"id": "b", "text": "cut' >> "$work/cut.jsonl"
+batch cut.jsonl --resume || fail "resuming after a cut line failed"
+same cut.jsonl || fail "resuming after a cut line differs from a full run"
+
+# Stopped right before the newline: the answer is whole and kept.
+head -n 2 "$work/full.jsonl" > "$work/whole.jsonl"
+printf '%s' "$(tail -n 1 "$work/full.jsonl")" >> "$work/whole.jsonl"
+batch whole.jsonl --resume || fail "resuming after a missing newline failed"
+same whole.jsonl || fail "a whole last line without its newline was lost or repeated"
+
+# Resuming a finished file changes nothing.
+batch cut.jsonl --resume || fail "resuming a finished file failed"
+same cut.jsonl || fail "resuming a finished file changed it"
+
+# A bad line in the middle is not something stopping a run can cause, so it is refused.
+{ echo 'not json'; cat "$work/full.jsonl"; } > "$work/bad.jsonl"
+cp "$work/bad.jsonl" "$work/bad-before.jsonl"
+if batch bad.jsonl --resume; then fail "a bad middle line was accepted"; fi
+grep -q "line 1 is not a finished answer" "$work/err" || fail "unexpected error"
+cmp -s "$work/bad.jsonl" "$work/bad-before.jsonl" || fail "a refused file was changed"
 echo "resume ok"
