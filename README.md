@@ -24,6 +24,7 @@ Each row names the script or test that produced it; the numbers are in the linke
 | 8-bit weights make it faster and smaller | 58.9 tokens a second against 26.2 in f32, peak memory 2377 MB against 3545 MB, with 6 threads on an Apple M4 | [`scripts/quant_report.py`](docs/results/quant-qwen3-0.6b.md), median of 3 runs |
 | What 8 bits cost, stated plainly | Mean KL divergence 0.011 nats from the f32 model, the same top pick 94.2% of the time over 207 positions | Same report; with f32 inputs to the 8-bit matrices it was 0.0026 and 97.1%, at 45 tokens a second |
 | How far behind llama.cpp it is | 46% of llama.cpp's speed writing (58.0 against 126.9 tokens a second) and 40% reading a prompt, same model, same 8-bit format, CPU only, 6 threads | [`scripts/compare_llamacpp.py`](docs/results/llamacpp-qwen3-0.6b.md), published as measured. It was 33% and 19% before integer dot products and a lock-free thread pool |
+| It knows when it is likely wrong | On all 1319 GSM8K test questions, the highest per-token entropy in an answer spots Qwen3's wrong answers with AUROC 0.740, against 0.687 for question length alone (gap +0.053, 95% CI [+0.023, +0.094]). With the threshold set on one half and tested on the other, escalating 28.9% of questions caught 51.2% of the mistakes, and accuracy on the rest rose from 61.2% to 73.3% | [`scripts/route_eval.py`](docs/results/route-gsm8k.md), pinned dataset revision, bootstrap intervals; no cloud model was called, so this is not a combined system's score |
 | Threads change speed, not answers | Results identical to the bit for any number of threads | `tests/threads_test.cpp`, and a ThreadSanitizer job in CI |
 | It can learn, not just run | Every autograd operation and a whole transformer's gradients match finite differences in double precision | `tests/autograd_test.cpp`, `tests/char_model_test.cpp` |
 
@@ -92,7 +93,7 @@ cmake --preset release && cmake --build --preset release
 
 ./scripts/fetch-model.sh qwen3-0.6b             # Qwen3 0.6B, 1.5 GB
 ./build/release/ember generate models/qwen3-0.6b --chat --q8 --threads 6 "Why is the sky blue?"
-./build/release/ember route models/qwen3-0.6b --q8 --threads 6 --threshold 2.5 "A hard question"
+./build/release/ember route models/qwen3-0.6b --threads 6 --signal "max entropy" --threshold 2.272105 "A hard question"   # threshold from docs/results/route-gsm8k.md, f32 only
 ./build/release/ember train data/text/shakespeare.txt --steps 1000   # any text file
 ```
 
@@ -141,6 +142,7 @@ The bars come from [one saved run of `scripts/bench.sh`](docs/benchmarks/2026-11
 - llama.cpp is still about twice as fast on the same CPU. Likely reasons, not yet measured one by one: its matrix multiplies are blocked for the cache, and it runs a prompt as one large multiply where Ember goes row by row.
 - Rounding the inputs to 8 bits costs more accuracy than rounding the weights; a scale per smaller block, or f32 inputs for the most sensitive layers, are the next things to try.
 - Llama and Qwen3 models in one safetensors file. Llama 3's scaled RoPE and sliding-window attention are refused rather than run wrong.
+- The routing threshold was calibrated on one model, one benchmark, f32 weights, and greedy decoding. Math answers may make uncertainty easier to read than open-ended chat, and 8-bit weights would need their own threshold.
 - The browser runs the 15M model only; Qwen3 0.6B needs more memory than a 32-bit WebAssembly tab should take.
 - The dated plan, with what is done and what is next, is in [docs/PLAN.md](docs/PLAN.md).
 
