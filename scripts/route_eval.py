@@ -180,6 +180,22 @@ def main():
             "errors_caught_95": bootstrap(lambda idx: caught([scores[i] for i in idx], [wrong[i] for i in idx], ESCALATE), n),
         }
 
+    # Is the best logit signal better than just counting the question's tokens? Same resamples for
+    # both, so the interval is on the difference itself.
+    length = [row["question length (baseline)"] for row in rows]
+    top = max(signals[:-1], key=lambda k: report["signals"][k]["auroc"])
+    top_scores = [row[top] for row in rows]
+
+    def gap(idx):
+        w = [wrong[i] for i in idx]
+        return auroc([top_scores[i] for i in idx], w) - auroc([length[i] for i in idx], w)
+
+    report["versus_length"] = {
+        "signal": top,
+        "auroc_gain": round(auroc(top_scores, wrong) - auroc(length, wrong), 3),
+        "auroc_gain_95": bootstrap(gap, n),
+    }
+
     # Held out: pick the threshold on the first half, apply it to the second. Only the two signals
     # that never go down are candidates: `ember route` stops on them mid-answer and still makes the
     # decision scored here, which is not true of the averages.
@@ -236,6 +252,18 @@ def main():
         "AUROC is the chance that a wrong answer scores as more unsure than a right one; 0.5 is no "
         f"better than chance. Escalating {ESCALATE:.0%} at random catches about {ESCALATE:.0%} of "
         "the wrong answers.",
+        "",
+        "## Better than question length?",
+        "",
+    ]
+    v = report["versus_length"]
+    beats = v["auroc_gain_95"][0] > 0
+    lines += [
+        f"Longer questions are harder, so question length alone is a real baseline. {v['signal']} "
+        f"beats it by {v['auroc_gain']:+.3f} AUROC (95% CI [{v['auroc_gain_95'][0]:+.3f}, "
+        f"{v['auroc_gain_95'][1]:+.3f}], paired bootstrap), "
+        + ("so the logits add something length does not." if beats else
+           "and the interval includes zero, so this run cannot say the logits beat length."),
         "",
         "## Held out",
         "",
