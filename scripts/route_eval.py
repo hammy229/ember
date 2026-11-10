@@ -132,10 +132,16 @@ def main():
 
     prompts = WORK / "prompts.jsonl"
     answers = WORK / "answers.jsonl"
-    with prompts.open("w") as f:
-        for i, row in enumerate(table):
-            f.write(json.dumps({"id": i, "prompt": row["question"] + INSTRUCTION}) + "\n")
+    settings = WORK / "settings.json"
+    run = {"tokens": args.tokens, "limit": args.limit, "revision": REVISION,
+           "instruction": INSTRUCTION}
     if not args.analyze_only:
+        if args.resume and settings.exists() and json.loads(settings.read_text()) != run:
+            sys.exit(f"{settings} was made with other settings, so the answers cannot be mixed")
+        settings.write_text(json.dumps(run) + "\n")
+        with prompts.open("w") as f:
+            for i, row in enumerate(table):
+                f.write(json.dumps({"id": i, "prompt": row["question"] + INSTRUCTION}) + "\n")
         subprocess.run(
             [str(ROOT / "build/release/ember"), "batch", str(ROOT / "models/qwen3-0.6b"),
              str(prompts), str(answers), "--chat", "--threads", str(args.threads),
@@ -145,7 +151,8 @@ def main():
     results = [json.loads(line) for line in answers.open()]
     results.sort(key=lambda r: r["id"])
     if len(results) != len(table):
-        sys.exit(f"have {len(results)} answers for {len(table)} questions")
+        sys.exit(f"have {len(results)} answers in {answers} for {len(table)} questions; "
+                 "finish the run with --resume, or match --limit")
 
     wrong, rows = [], []
     fallback = truncated = 0
