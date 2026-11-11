@@ -44,6 +44,36 @@ const MODEL_FACTS = [
   { value: "91.9%", label: "of the engine's lines run by its 431 tests" },
 ];
 
+// From the README's Qwen3 rows: tests/hf_reference_test.cpp against scripts/hf_reference_qwen3.py,
+// and docs/results/quant-qwen3-0.6b.md made by scripts/quant_report.py.
+const QWEN_FACTS = [
+  {
+    value: "1.0e-4",
+    label:
+      "largest difference from Hugging Face across the top 10 logits, same next token at 73 of 73 positions",
+  },
+  {
+    value: "2.2x",
+    label: "faster with 8-bit weights: 58.9 tokens a second against 26.2 in f32, 6 threads",
+  },
+  { value: "2377 MB", label: "peak memory in 8 bits, against 3545 MB in f32" },
+  {
+    value: "94.2%",
+    label: "of positions where 8 bits picks the same next token as f32, mean KL 0.011 nats",
+  },
+];
+
+// From docs/results/llamacpp-qwen3-0.6b.md, made by scripts/compare_llamacpp.py. Qwen3 0.6B in 8
+// bits on both, CPU only, 6 threads, median of 3 runs, Apple M4.
+const LLAMACPP_WRITE = [
+  { name: "llama.cpp", value: 126.9, baseline: true },
+  { name: "Ember", value: 58.0 },
+].map((row) => ({ ...row, label: `${row.value.toFixed(0)} tok/s` }));
+const LLAMACPP_READ = [
+  { name: "llama.cpp", value: 642.9, baseline: true },
+  { name: "Ember", value: 257.9 },
+].map((row) => ({ ...row, label: `${row.value.toFixed(0)} tok/s` }));
+
 const PROOF = [
   {
     title: "It refuses to be quietly wrong",
@@ -166,9 +196,9 @@ export default function Home() {
 
           <SpeedRun />
           <p className="foot">
-            Saved numbers come from one run of the repo&apos;s benchmark script, with no hand-written SIMD
-            yet. They are a starting point, not a claim of being fast. No comparison to another engine
-            exists yet.
+            Saved numbers come from one run of the repo&apos;s benchmark script, before any
+            hand-written SIMD. They are a starting point, not a claim of being fast. The comparison
+            with llama.cpp is further down.
           </p>
         </section>
 
@@ -201,6 +231,42 @@ export default function Home() {
             for this chip. Writing the SIMD registers out by hand made Ember 1.6 times faster with
             answers identical to the bit, in the Nov 8 run, which timed both commits. Every number
             here comes from the repo&apos;s results script, which anyone can rerun.
+          </p>
+        </section>
+
+        <section className="band" id="qwen">
+          <div className="band-wide">
+            <h2>A 0.6B model, next to llama.cpp.</h2>
+            <p className="band-lead">
+              The same engine runs Qwen3 0.6B on the laptop, matches Hugging Face on it, and loads
+              it in 8 bits. llama.cpp, the engine most local AI runs on, is still more than twice as
+              fast. Here is by how much.
+            </p>
+          </div>
+
+          <dl className="facts">
+            {QWEN_FACTS.map((fact) => (
+              <div key={fact.value}>
+                <dt>{fact.value}</dt>
+                <dd>{fact.label}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <Bars
+            caption="Writing, tokens a second, Qwen3 0.6B in 8 bits, CPU only, 6 threads, Apple M4, longer is better"
+            rows={LLAMACPP_WRITE}
+          />
+          <Bars
+            caption="Reading a 121 token prompt, tokens a second, same setup, longer is better"
+            rows={LLAMACPP_READ}
+          />
+          <p className="foot">
+            Ember runs at 46% of llama.cpp&apos;s speed writing and 40% reading, with the same model
+            in the same 8-bit format. It was 33% and 19% before integer dot products and a lock-free
+            thread pool. The 58.0 here and the 58.9 above are two runs by two scripts on the same
+            build. The browser runs only the 15M model, because Qwen3 needs more memory than a
+            WebAssembly tab should take.
           </p>
         </section>
 
