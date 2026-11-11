@@ -167,7 +167,7 @@ export default function Home() {
           <WriteLive />
         </section>
 
-        <section className="band split" id="inside">
+        <section className="band" id="inside">
           <div className="band-head">
             <h2>Look inside while it reads.</h2>
             <p>

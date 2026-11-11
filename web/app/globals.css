@@ -853,8 +853,23 @@ input[type="range"]:active::-moz-range-thumb {
 .inside-attention {
   display: grid;
   gap: 2px;
+  max-width: 720px;
   margin-top: 20px;
   overflow-x: auto;
+}
+
+/* The lens table is wider than half a laptop screen, so this section stacks: text, then the
+   visuals across the whole band. */
+.band:not(.split) > .band-head {
+  position: static;
+}
+
+.band:not(.split) > .inside {
+  margin-top: clamp(40px, 5vw, 72px);
+}
+
+.band:not(.split) > .inside .write-controls {
+  max-width: 720px;
 }
 
 .inside-row {
