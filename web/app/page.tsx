@@ -1,3 +1,4 @@
+import { Bars } from "./Bars";
 import { CoalField } from "./CoalField";
 import { InsideLive } from "./InsideLive";
 import { LiveChecks } from "./LiveChecks";
@@ -9,29 +10,38 @@ import { WriteLive } from "./WriteLive";
 
 // From docs/benchmarks/2026-11-06-m4.txt, made by scripts/bench.sh. Fastest of 10 runs at 1024 x 1024.
 const PRODUCT_TIMES = [
-  { name: "MatMul", ms: 65.1702 },
-  { name: "MatMul, transposed input copied first", ms: 69.0571 },
-  { name: "MatMul, transposed input", ms: 810.2957 },
-  { name: "Textbook loops", ms: 828.4239 },
-];
-const SLOWEST = Math.max(...PRODUCT_TIMES.map((row) => row.ms));
+  { name: "MatMul", value: 65.1702 },
+  { name: "MatMul, transposed input copied first", value: 69.0571 },
+  { name: "MatMul, transposed input", value: 810.2957 },
+  { name: "Textbook loops", value: 828.4239 },
+].map((row) => ({ ...row, label: `${row.value.toFixed(0)} ms` }));
 
-// From docs/results/2026-11-08-apple-m4.md, made by scripts/results.sh. Median of the runs, one
+// From docs/results/2026-11-11-apple-m4.md, made by scripts/results.sh. Median of the runs, one
 // forward pass of 128 tokens through the 15M parameter TinyStories Llama, Apple M4.
 const MODEL_TIMES = [
-  { name: "NumPy with Apple's tuned BLAS", ms: 21.03, baseline: true },
-  { name: "Ember, SIMD spelled out", ms: 158.14, baseline: false },
-  { name: "Ember, one commit earlier", ms: 259.32, baseline: false },
-];
-const MODEL_SLOWEST = Math.max(...MODEL_TIMES.map((row) => row.ms));
+  { name: "NumPy with Apple's tuned BLAS", value: 20.26, baseline: true },
+  { name: "Ember", value: 154.17 },
+].map((row) => ({ ...row, label: `${row.value.toFixed(0)} ms` }));
 
-// From docs/results/2026-11-09-apple-m4.md, the next run of the same script. Each figure says what
-// produced it.
+// From the same run, except "156 / 156": the same-pick check is asserted by
+// tests/hf_reference_test.cpp, which the run passes. Speed is the one-token row, the cost of writing
+// each new token.
+// The 1.6x SIMD figure in this section's footnote is from docs/results/2026-11-08-apple-m4.md,
+// made by results.sh --before 08c2e73, which built and timed both commits.
 const MODEL_FACTS = [
-  { value: "3.0e-5", label: "largest difference from Hugging Face's own logits, checked on every push" },
-  { value: "156 / 156", label: "positions where Ember and Hugging Face pick the same next token" },
-  { value: "814", label: "tokens a second on one thread, with 147 MB for the whole process" },
-  { value: "97.8%", label: "of the engine's lines run by its 328 tests" },
+  {
+    value: "3.0e-5",
+    label: "largest difference from Hugging Face's own logits, checked on every push",
+  },
+  {
+    value: "156 / 156",
+    label: "positions where Ember and Hugging Face pick the same next token",
+  },
+  {
+    value: "846",
+    label: "tokens a second writing on one thread, with 147 MB for the whole process",
+  },
+  { value: "91.9%", label: "of the engine's lines run by its 431 tests" },
 ];
 
 const PROOF = [
@@ -63,7 +73,8 @@ export default function Home() {
             <h1>An LLM engine, written from scratch, running in this tab.</h1>
             <p className="lead">
               Ember is C++20 with no ML framework, compiled to WebAssembly. The grid here is not an
-              animation. Your browser is computing it right now, with the same math attention runs on.
+              animation. Your browser is computing it right now, with the same math attention runs
+              on.
             </p>
             <p className="hero-honest">
               It loads a 15M parameter Llama and writes stories with it, in this tab, on your
@@ -89,9 +100,9 @@ export default function Home() {
           <div className="band-head">
             <h2>It writes here, and shows where it was unsure.</h2>
             <p>
-              Every word below comes from the C++ engine running in your browser, with no server. Each
-              token is shaded by the entropy of the model&apos;s choice: pale where it was sure, dark
-              where many next words looked about as good.
+              Every word below comes from the C++ engine running in your browser, with no server.
+              Each token is shaded by the entropy of the model&apos;s choice: pale where it was
+              sure, dark where many next words looked about as good.
             </p>
             <p>
               That signal is free to an engine that owns its logits, and it is what a local-first
@@ -148,23 +159,10 @@ export default function Home() {
             </p>
           </div>
 
-          <figure className="bars">
-            <figcaption>Time for one 1024 x 1024 multiply, Apple M4, one thread, shorter is better</figcaption>
-            <dl>
-              {PRODUCT_TIMES.map((row) => (
-                <div key={row.name}>
-                  <dt>{row.name}</dt>
-                  <dd>
-                    <span
-                      className="bar"
-                      style={{ width: `calc((100% - 76px) * ${row.ms / SLOWEST})` }}
-                    />
-                    <span className="bar-value">{row.ms.toFixed(0)} ms</span>
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </figure>
+          <Bars
+            caption="Time for one 1024 x 1024 multiply, Apple M4, one thread, shorter is better"
+            rows={PRODUCT_TIMES}
+          />
 
           <SpeedRun />
           <p className="foot">
@@ -178,10 +176,10 @@ export default function Home() {
           <div className="band-wide">
             <h2>A real model, checked against Hugging Face.</h2>
             <p className="band-lead">
-              Ember loads a 15M parameter Llama trained on children&apos;s stories and runs it to the
-              last logit. After &ldquo;Once upon a time&rdquo; it picks a comma, and so does Hugging
-              Face&apos;s own library, with scores that agree to within 0.00003. A separate Llama
-              written in NumPy agrees with every one of the 32,000.
+              Ember loads a 15M parameter Llama trained on children&apos;s stories and runs it to
+              the last logit. After &ldquo;Once upon a time&rdquo; it picks a comma, and so does
+              Hugging Face&apos;s own library, with scores that agree to within 0.00003. A separate
+              Llama written in NumPy agrees with every one of the 32,000.
             </p>
           </div>
 
@@ -194,28 +192,15 @@ export default function Home() {
             ))}
           </dl>
 
-          <figure className="bars">
-            <figcaption>One forward pass of 128 tokens, Apple M4, shorter is better</figcaption>
-            <dl>
-              {MODEL_TIMES.map((row) => (
-                <div key={row.name}>
-                  <dt>{row.name}</dt>
-                  <dd>
-                    <span
-                      className={row.baseline ? "bar is-baseline" : "bar"}
-                      style={{ width: `calc((100% - 76px) * ${row.ms / MODEL_SLOWEST})` }}
-                    />
-                    <span className="bar-value">{row.ms.toFixed(0)} ms</span>
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </figure>
+          <Bars
+            caption="One forward pass of 128 tokens, Apple M4, shorter is better"
+            rows={MODEL_TIMES}
+          />
           <p className="foot">
-            NumPy is still 7.5 times faster, because it hands the math to a library tuned by hand for
-            this chip. Writing the SIMD registers out by hand made Ember 1.6 times faster with
-            answers identical to the bit. Every number here comes from one run of the repo&apos;s
-            results script, which anyone can rerun.
+            NumPy is still 7.6 times faster, because it hands the math to a library tuned by hand
+            for this chip. Writing the SIMD registers out by hand made Ember 1.6 times faster with
+            answers identical to the bit, in the Nov 8 run, which timed both commits. Every number
+            here comes from the repo&apos;s results script, which anyone can rerun.
           </p>
         </section>
 
