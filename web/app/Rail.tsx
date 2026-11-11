@@ -10,6 +10,8 @@ const LINKS = [
   { href: "#softmax", label: "Softmax" },
   { href: "#speed", label: "Speed" },
   { href: "#model", label: "Model" },
+  { href: "#qwen", label: "Qwen3" },
+  { href: "#route", label: "Route" },
   { href: "#proof", label: "Proof" },
 ];
 

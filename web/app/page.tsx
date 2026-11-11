@@ -74,6 +74,31 @@ const LLAMACPP_READ = [
   { name: "Ember", value: 257.9 },
 ].map((row) => ({ ...row, label: `${row.value.toFixed(0)} tok/s` }));
 
+// From docs/results/route-gsm8k.md, made by scripts/route_eval.py on all 1319 GSM8K test questions.
+const ROUTE_AUROC = [
+  { name: "Highest entropy in the answer", value: 0.74 },
+  { name: "Question length", value: 0.687, baseline: true },
+  { name: "Random", value: 0.478, baseline: true },
+].map((row) => ({ ...row, label: row.value.toFixed(3) }));
+const ROUTE_FACTS = [
+  {
+    value: "62.1%",
+    label: "of GSM8K questions Qwen3 0.6B gets right on its own, in Ember",
+  },
+  {
+    value: "28.9%",
+    label: "of held-out questions escalated by a threshold set on the other half",
+  },
+  {
+    value: "51.2%",
+    label: "of the local model's mistakes caught by those escalations, 95% CI 45.0 to 57.5",
+  },
+  {
+    value: "73.3%",
+    label: "accuracy on the questions kept local, against 61.2% keeping everything",
+  },
+];
+
 const PROOF = [
   {
     title: "It refuses to be quietly wrong",
@@ -267,6 +292,38 @@ export default function Home() {
             thread pool. The 58.0 here and the 58.9 above are two runs by two scripts on the same
             build. The browser runs only the 15M model, because Qwen3 needs more memory than a
             WebAssembly tab should take.
+          </p>
+        </section>
+
+        <section className="band" id="route">
+          <div className="band-wide">
+            <h2>It can tell when it is likely wrong.</h2>
+            <p className="band-lead">
+              Qwen3 0.6B answered all 1319 GSM8K test questions in Ember. The highest per-token
+              entropy in each answer, read straight from the logits, flags the wrong ones better
+              than question length does, so a router can keep easy questions local and send the rest
+              to a bigger model.
+            </p>
+          </div>
+
+          <dl className="facts">
+            {ROUTE_FACTS.map((fact) => (
+              <div key={fact.value}>
+                <dt>{fact.value}</dt>
+                <dd>{fact.label}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <Bars
+            caption="How well each signal spots a wrong answer (AUROC, bars start at 0, 0.5 is chance), longer is better"
+            rows={ROUTE_AUROC}
+          />
+          <p className="foot">
+            The gap over question length is +0.053 AUROC, 95% CI +0.023 to +0.094. No cloud model
+            was called: escalated questions are scored with the answer key, so this measures whether
+            the signal finds the local model&apos;s mistakes, not what a combined system would
+            score. One model, one benchmark, greedy decoding.
           </p>
         </section>
 
