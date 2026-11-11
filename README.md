@@ -5,7 +5,9 @@
 [![CI](https://github.com/hammy229/ember/actions/workflows/ci.yml/badge.svg)](https://github.com/hammy229/ember/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Links:** [Results](docs/results/2026-11-09-apple-m4.md) · [Against llama.cpp](docs/results/llamacpp-qwen3-0.6b.md) · [8-bit report](docs/results/quant-qwen3-0.6b.md) · [How loading works](docs/loader.md) · [How the forward pass works](docs/forward.md) · [Plan](docs/PLAN.md) · [Arham Doshi](https://arhamdoshi.dev) · [LinkedIn](https://linkedin.com/in/arhamdoshi)
+**Live demo: [ember-rosy-three.vercel.app](https://ember-rosy-three.vercel.app)**
+
+**Links:** [Results](docs/results/2026-11-11-apple-m4.md) · [Against llama.cpp](docs/results/llamacpp-qwen3-0.6b.md) · [8-bit report](docs/results/quant-qwen3-0.6b.md) · [How loading works](docs/loader.md) · [How the forward pass works](docs/forward.md) · [Plan](docs/PLAN.md) · [Arham Doshi](https://arhamdoshi.dev) · [LinkedIn](https://linkedin.com/in/arhamdoshi)
 
 ![Ember's site: a triangular grid of coals from pale ash to deep ember, each one an attention weight the engine is computing live in the browser](docs/screenshots/home.png)
 
