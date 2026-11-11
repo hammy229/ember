@@ -28,23 +28,25 @@ Each row names the script or test that produced it; the numbers are in the linke
 | Threads change speed, not answers | Results identical to the bit for any number of threads | `tests/threads_test.cpp`, and a ThreadSanitizer job in CI |
 | It can learn, not just run | Every autograd operation and a whole transformer's gradients match finite differences in double precision | `tests/autograd_test.cpp`, `tests/char_model_test.cpp` |
 
+![Routing section of the site: Qwen3 0.6B gets 62.1% of GSM8K right alone; escalating 28.9% of held-out questions catches 51.2% of its mistakes and lifts accuracy on the rest to 73.3%; max entropy scores AUROC 0.740 against 0.687 for question length and 0.478 for random](docs/screenshots/route.png)
+
 ### On the 15M parameter TinyStories Llama
 
-Every number here comes from one run of [`scripts/results.sh`](scripts/results.sh), saved in [docs/results/2026-11-09-apple-m4.md](docs/results/2026-11-09-apple-m4.md) with the commit, compiler, and machine. The SIMD row is from the [Nov 8 run](docs/results/2026-11-08-apple-m4.md), which timed the older commit too. Rerun it and you get your own copy.
+Every number here comes from one run of [`scripts/results.sh`](scripts/results.sh), saved in [docs/results/2026-11-11-apple-m4.md](docs/results/2026-11-11-apple-m4.md) with the commit, compiler, and machine. The SIMD row is from the [Nov 8 run](docs/results/2026-11-08-apple-m4.md), which timed the older commit too. Rerun it and you get your own copy.
 
 | Claim | Measured | How it is checked |
 |---|---|---|
 | It matches Hugging Face | Largest logit difference 3.0e-5 from `transformers`' own logits, with the same top token at all 156 positions tested | `tests/hf_reference_test.cpp` against logits saved by `scripts/hf_reference.py`, run in CI on Linux, under sanitizers, and on macOS |
 | Every logit is right | Largest difference 4.2e-5 from a separate NumPy Llama, across all 32,000 logits at the same 156 positions | `scripts/reference_logits.py` on three inputs from 5 to 128 tokens |
-| It runs a real model | 15,191,712 parameters, 814 tokens a second on one thread, 147 MB of memory for the whole process | `ember_bench_model` on the TinyStories Llama |
+| It runs a real model | 15,191,712 parameters, 846 tokens a second on one thread, 147 MB of memory for the whole process | `ember_bench_model` on the TinyStories Llama |
 | Speed work is measured, not guessed | Spelling out the SIMD registers in `Linear` took one token from 1.98 ms to 1.23 ms (1.6x) with logits identical to the bit | `results.sh --before 08c2e73` builds the old commit and times both |
-| It is honest about where it stands | NumPy with Apple's hand-tuned BLAS runs 128 tokens in 21.0 ms. Ember takes 158.4 ms, 7.5x slower | Same script, same machine, same tokens |
+| It is honest about where it stands | NumPy with Apple's hand-tuned BLAS runs 128 tokens in 20.3 ms. Ember takes 154.2 ms, 7.6x slower | Same script, same machine, same tokens |
 | Bad input cannot crash it | Every truncation and thousands of corrupted headers fail cleanly under AddressSanitizer, and libFuzzer runs on every push | `tests/loader_corruption_test.cpp`, `fuzz/`, CI |
-| The tests reach the code | 328 tests, covering 97.8% of lines and 86.0% of branches in `src/` | `scripts/coverage.sh` |
+| The tests reach the code | 431 tests, covering 91.9% of lines and 74.5% of branches in `src/`. The gap is mostly `tokenizer.cpp` (70% of lines), whose Qwen3 tests need the 1.5 GB model, which the coverage run does not load | `scripts/coverage.sh` |
 
-![Model section of the site: logits within 3.0e-5 of Hugging Face's, the same next token at 156 of 156 positions, 814 tokens a second, and a bar chart where NumPy runs 128 tokens in 21 ms against Ember's 158 ms](docs/screenshots/model.png)
+![Model section of the site: logits within 3.0e-5 of Hugging Face's, the same next token at 156 of 156 positions, 846 tokens a second, and a bar chart where NumPy runs 128 tokens in 20 ms against Ember's 154 ms](docs/screenshots/model.png)
 
-These rows are from the Nov 9 run, before threads and 8-bit weights; the Qwen3 rows above are newer.
+These rows are from the Nov 11 run, on one thread and f32 weights; threads and 8 bits are in the Qwen3 rows above.
 
 ## Why it matters
 
