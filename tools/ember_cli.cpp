@@ -300,6 +300,11 @@ int RunBatch(int argc, char** argv) {
     }
     if (!ok) return Usage();
   }
+  std::error_code same_error;
+  if (std::filesystem::equivalent(in_path, out_path, same_error)) {
+    std::cerr << "error: the output file is the input file, so writing would erase the prompts\n";
+    return 1;
+  }
   std::set<std::string> finished;
   if (resume) {
     const ember::Status status = KeepFinishedAnswers(out_path, finished);
@@ -331,6 +336,7 @@ int RunBatch(int argc, char** argv) {
   }
   std::string line;
   std::size_t done = finished.size();
+  std::size_t skipped = 0;
   while (std::getline(in, line)) {
     if (line.empty()) continue;
     const auto record = ember::Json::Parse(line);
@@ -350,8 +356,11 @@ int RunBatch(int argc, char** argv) {
     const auto result = ember::Generate(**model, ids, options);
     const double ms = stopwatch.ElapsedMs();
     if (!result.ok()) {
-      std::cerr << "error: " << result.status().ToString() << '\n';
-      return 1;
+      // One bad prompt should not lose the rest of the run. It is not written, so --resume
+      // tries it again, and the exit code still says something was left out.
+      std::cerr << "\nskipped id " << id_json << ": " << result.status().ToString() << '\n';
+      ++skipped;
+      continue;
     }
     std::vector<std::int32_t> reply;
     for (const auto& t : result->tokens) {
@@ -369,11 +378,19 @@ int RunBatch(int argc, char** argv) {
           << ", " << t.stats.top1_prob << "]";
     }
     out << "]}\n" << std::flush;
+    if (!out) {
+      std::cerr << "\nerror: could not write to " << out_path << '\n';
+      return 1;
+    }
     finished.insert(id_json);  // a repeated id is answered once
     ++done;
     std::cerr << "\r" << done << " done" << std::flush;
   }
   std::cerr << '\n';
+  if (skipped > 0) {
+    std::cerr << skipped << " skipped, see above\n";
+    return 1;
+  }
   return 0;
 }
 

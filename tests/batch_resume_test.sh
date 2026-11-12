@@ -57,4 +57,18 @@ cp "$work/bad.jsonl" "$work/bad-before.jsonl"
 if batch bad.jsonl --resume; then fail "a bad middle line was accepted"; fi
 grep -q "line 1 is not a finished answer" "$work/err" || fail "unexpected error"
 cmp -s "$work/bad.jsonl" "$work/bad-before.jsonl" || fail "a refused file was changed"
+# The output cannot be the input, which writing would erase.
+cp "$work/in.jsonl" "$work/in-before.jsonl"
+if "$ember" batch "$EMBER_MODEL_DIR" "$work/in.jsonl" "$work/in.jsonl" 2>"$work/err"; then
+  fail "writing over the input was accepted"
+fi
+cmp -s "$work/in.jsonl" "$work/in-before.jsonl" || fail "the input was changed"
+
+# A prompt too long for the context is skipped, the rest are answered, and the exit code says so.
+long=$(awk 'BEGIN { for (i = 0; i < 400; i++) printf "the dog ran. " }')
+printf '%s\n' "{\"id\": \"long\", \"prompt\": \"$long\"}" '{"id": 0, "prompt": "Once upon a time"}' \
+  > "$work/in.jsonl"
+if batch skip.jsonl; then fail "a skipped prompt still exited 0"; fi
+grep -q 'skipped id "long"' "$work/err" || fail "the skipped prompt was not named"
+[ "$(wc -l < "$work/skip.jsonl")" -eq 1 ] || fail "the prompt after a bad one was not answered"
 echo "resume ok"
