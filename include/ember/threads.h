@@ -18,6 +18,9 @@ std::size_t ThreadCount();
 // Which thread runs which piece changes from call to call, so a body must not depend on it: each
 // index's work has to be the same wherever it runs. Then the results are identical for any number
 // of threads, which tests/threads_test.cpp checks for the engine's own uses.
+//
+// The pool runs one job at a time, so call it from one outside thread only. Threads above the
+// core count spin against each other between jobs, so more than the machine has only slows it.
 void ParallelFor(std::size_t count, std::size_t grain,
                  const std::function<void(std::size_t begin, std::size_t end)>& body);
 
