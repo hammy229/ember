@@ -1,5 +1,6 @@
 import { Bars } from "./Bars";
 import { CoalField } from "./CoalField";
+import { DemoReel } from "./DemoReel";
 import { InsideLive } from "./InsideLive";
 import { LiveChecks } from "./LiveChecks";
 import { Rail } from "./Rail";
@@ -149,6 +150,17 @@ export default function Home() {
             </p>
           </div>
           <CoalField />
+        </section>
+
+        <section className="band" id="demo">
+          <div className="band-wide">
+            <h2>See it run first.</h2>
+            <p className="band-lead">
+              Each clip is this page, recorded in headless Chrome. The training clip plays at 4x
+              speed, and nothing else is changed. Every section below lets you do it yourself.
+            </p>
+          </div>
+          <DemoReel />
         </section>
 
         <section className="band split" id="write">
