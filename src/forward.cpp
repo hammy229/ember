@@ -219,6 +219,12 @@ StatusOr<std::vector<std::vector<LensPick>>> LogitLens(const LlamaModel& model,
     return Status::InvalidArgument("LogitLens needs a trace from Forward on this model");
   }
   const std::size_t tokens = trace.residual[0].size() / c.hidden_size;
+  for (const auto& layer : trace.residual) {
+    if (layer.size() != tokens * c.hidden_size) {
+      return Status::InvalidArgument(
+          "LogitLens needs every layer of the trace to be the same size");
+    }
+  }
   std::vector<std::vector<LensPick>> picks(c.layer_count, std::vector<LensPick>(tokens));
   for (std::size_t l = 0; l < c.layer_count; ++l) {
     const ArenaScope scope(arena);

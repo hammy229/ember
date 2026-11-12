@@ -465,6 +465,10 @@ TEST(ForwardTrace, TheLastLayerOfTheLensIsTheModelsOwnPrediction) {
     EXPECT_GT((*lens)[1][t].probability, 0.0F);
   }
   EXPECT_FALSE(ember::LogitLens(*loaded.model, ember::ForwardTrace{}, lens_arena).ok());
+  // A hand-made trace whose later layer is longer than the first would overrun the scratch rows.
+  ember::ForwardTrace uneven = trace;
+  uneven.residual[1].resize(uneven.residual[1].size() * 2);
+  EXPECT_FALSE(ember::LogitLens(*loaded.model, uneven, lens_arena).ok());
 }
 
 }  // namespace
