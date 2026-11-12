@@ -43,6 +43,13 @@ float Dequantized(const Q8Matrix& q, std::size_t r, std::size_t c) {
          q.scales[r * (q.cols / Q8Matrix::kBlock) + c / Q8Matrix::kBlock];
 }
 
+TEST(Quant, ASizeThatWrapsAroundIsRefused) {
+  Arena arena;
+  // 2^62 rows of 32 f32 values is 2^69 bytes, which wraps to 0 and would match an empty span.
+  const std::size_t rows = std::size_t{1} << 62;
+  EXPECT_FALSE(ember::QuantizeQ8(ember::DType::kF32, {}, rows, 32, arena).ok());
+}
+
 TEST(Quant, EveryWeightMovesByAtMostHalfAStep) {
   Arena arena;
   const Tensor w = Random(arena, 20, 96, 1);

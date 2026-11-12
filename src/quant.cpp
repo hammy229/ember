@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -57,6 +58,9 @@ StatusOr<Q8Matrix> Allocate(std::size_t rows, std::size_t cols, Arena& arena) {
   if (cols == 0 || cols % Q8Matrix::kBlock != 0) {
     return Status::InvalidArgument("QuantizeQ8 needs rows a multiple of 32 long, got " +
                                    std::to_string(cols));
+  }
+  if (rows > std::numeric_limits<std::size_t>::max() / cols / 4) {
+    return Status::InvalidArgument("QuantizeQ8 got a matrix too large to address");
   }
   Q8Matrix q;
   q.rows = rows;
@@ -114,6 +118,9 @@ StatusOr<Q8Matrix> QuantizeQ8(const TensorView& weight, Arena& arena) {
 StatusOr<Q8Matrix> QuantizeQ8(DType dtype, std::span<const std::byte> bytes, std::size_t rows,
                               std::size_t cols, Arena& arena) {
   const std::size_t width = dtype == DType::kF32 ? 4 : 2;
+  if (cols == 0 || rows > std::numeric_limits<std::size_t>::max() / cols / width) {
+    return Status::InvalidArgument("QuantizeQ8 got a matrix too large to address");
+  }
   if ((dtype != DType::kF32 && dtype != DType::kF16 && dtype != DType::kBF16) ||
       bytes.size() != rows * cols * width) {
     return Status::InvalidArgument("QuantizeQ8 needs f32, f16, or bf16 bytes of the right size");
