@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -94,3 +95,15 @@ TEST(CharTrainer, SamplingIsRepeatableWithASeed) {
 }
 
 }  // namespace
+
+TEST(CharTrainer, ANanTemperatureStillSamples) {
+  std::string text;
+  while (text.size() < 1000) text += "abcdefg hijk ";
+  CharTrainer::Options options;
+  options.model = Tiny(0);
+  options.model.context = 8;
+  CharTrainer trainer(text, options);
+  // The browser passes the temperature straight through, so NaN must act like the floor.
+  EXPECT_EQ(trainer.Sample("ab", 10, std::numeric_limits<float>::quiet_NaN(), 5),
+            trainer.Sample("ab", 10, 0.0F, 5));
+}

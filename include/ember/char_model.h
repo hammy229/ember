@@ -224,9 +224,12 @@ class CharTrainer {
       const auto logits = model_.Forward(std::span(ids).last(n));
       const float* row = &logits->value[(n - 1) * vocab_.size()];
       std::vector<double> weights(vocab_.size());
+      // Written so a NaN temperature from the browser falls back to the floor instead of
+      // giving NaN weights, which std::discrete_distribution does not allow.
+      const float t = temperature > 1e-3F ? temperature : 1e-3F;
       const float largest = *std::max_element(row, row + vocab_.size());
       for (std::size_t j = 0; j < vocab_.size(); ++j) {
-        weights[j] = std::exp(static_cast<double>(row[j] - largest) / std::max(temperature, 1e-3F));
+        weights[j] = std::exp(static_cast<double>(row[j] - largest) / t);
       }
       std::discrete_distribution<std::int32_t> pick(weights.begin(), weights.end());
       ids.push_back(pick(rng));
