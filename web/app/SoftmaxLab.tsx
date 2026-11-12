@@ -178,7 +178,7 @@ export function SoftmaxLab() {
         {engine && !refused && huge &&
           `Every score just went up by ${HUGE}. e^${HUGE} does not fit in a float, so the plain formula would give NaN here. Ember subtracts each row's largest score first, so the chances hold.`}
         {engine && !refused && !huge &&
-          "Scores are made up, since no model runs in the browser yet. The chances are real: each change runs C++ Softmax in this tab."}
+          "The scores are made up so you can drag them. The chances are real: each change runs C++ Softmax in this tab."}
       </p>
     </div>
   );
