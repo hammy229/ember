@@ -17,7 +17,7 @@ Ember is an LLM inference engine written from scratch in C++20, with no ML frame
 | Mon, Nov 9 | Tokenizers, KV cache, sampling, generation, browser demo, Qwen3 0.6B, threads, 8-bit weights and report, llama.cpp comparison, `ember route` and its GSM8K eval (running), autograd and training, attention maps and logit lens | Done |
 | Tue, Nov 10 | Routing results from the finished GSM8K run, pick `ember route`'s threshold on held-out questions, results page and README row | Done: all 1319 questions; max entropy beats question length (AUROC 0.740 vs 0.687); threshold 2.272105 checked against `ember route`; batch runs can resume |
 | Wed, Nov 11 | Site numbers for Qwen3, 8 bits, llama.cpp, and routing; rerun results and coverage on an idle machine; new screenshots; private deploy | Done: Qwen3 and routing sections on the site, results rerun (431 tests, 91.9% lines), new screenshots, static site deployed to Vercel at ember-rosy-three.vercel.app and checked in a browser |
-| Thu, Nov 12 | MedData due 2pm CST. Code and security review fixes, demo video shot list, launch post draft | |
+| Thu, Nov 12 | MedData due 2pm CST. Code and security review fixes, demo video shot list, launch post draft | Done: 7 review fixes, each with a test that fails without it (token limit overflow, batch input overwrite, skipped prompts, write errors, Q8 size overflow, NaN temperature, lens trace sizes); shot list and post drafted |
 | Fri, Nov 13 | **Publish day:** site live, resume update, launch post with the routing result | |
 | Nov 14 to 20 | Fixes, and anything that missed Thursday ships as an update | |
 
