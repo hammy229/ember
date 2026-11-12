@@ -26,7 +26,9 @@ StatusOr<std::unique_ptr<Generator>> Generator::Make(const LlamaModel& model,
                                    std::to_string(context));
   }
   EMBER_ASSIGN_OR_RETURN(Sampler sampler, Sampler::Make(options.sampling));
-  const std::size_t capacity = std::min(context, prompt.size() + options.max_new_tokens);
+  // Written so a huge max_new_tokens cannot wrap the sum below the prompt size.
+  const std::size_t capacity =
+      prompt.size() + std::min(options.max_new_tokens, context - prompt.size());
   EMBER_ASSIGN_OR_RETURN(auto cache, KvCache::Make(model.config(), capacity));
   return std::unique_ptr<Generator>(
       new Generator(model, options, std::move(sampler), std::move(cache),

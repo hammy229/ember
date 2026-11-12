@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -127,6 +128,17 @@ TEST(Generate, StopsWhenTheContextIsFull) {
   ASSERT_TRUE(result.ok());
   EXPECT_EQ(result->stop, GenerateResult::Stop::kContextFull);
   // 4 prompt tokens and 12 fed back fill 16 positions; the 13th new token is picked from the last.
+  EXPECT_EQ(result->tokens.size(), 13U);
+}
+
+TEST(Generate, AHugeTokenLimitStillStopsAtTheContext) {
+  const Loaded loaded = Load();  // context of 16
+  GenerateOptions options;
+  options.max_new_tokens = std::numeric_limits<std::size_t>::max();  // used to wrap the cache size
+  const auto result =
+      ember::Generate(*loaded.model, std::vector<std::int32_t>{1, 2, 3, 4}, options);
+  ASSERT_TRUE(result.ok()) << result.status().ToString();
+  EXPECT_EQ(result->stop, GenerateResult::Stop::kContextFull);
   EXPECT_EQ(result->tokens.size(), 13U);
 }
 
